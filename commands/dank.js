@@ -2,7 +2,7 @@ const { SlashCommandBuilder } = require("discord.js");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setContexts("User", "Guild", "Chat Input")
+    .setContexts("PrivateChannel", "Guild", "BotDM")
     .setName("dank")
     .setDescription("Dank commands")
     .addSubcommand((subcommand) =>

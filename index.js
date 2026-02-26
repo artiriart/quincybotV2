@@ -7,10 +7,9 @@ const {
   Options,
   Partials,
 } = require("discord.js");
-const dotenv = require("dotenv");
+process.env.DOTENV_CONFIG_QUIET=true;
+require("dotenv").config();
 const database = require("./database.js");
-
-dotenv.config();
 
 database.initDatabase();
 

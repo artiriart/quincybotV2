@@ -1,4 +1,3 @@
-// database.js
 const Database = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
@@ -24,7 +23,7 @@ const schema = {
     _constraint: "PRIMARY KEY (name, type)",
   },
   dank_randomevent_lootpool: {
-    item_name: "TEXT PRIMARY KEY",
+    item_name: "TEXT NOT NULL",
     event_name: "TEXT NOT NULL",
     _constraint: "PRIMARY KEY (item_name, event_name)",
   },
@@ -41,7 +40,7 @@ const schema = {
   },
   // ===== 7W7 BOT DATA =====
   sws_faq: {
-    topic: "TEXT PRIMARY KEY",
+    topic: "TEXT NOT NULL",
     answer: "TEXT DEFAULT NULL",
     _constraint: "PRIMARY KEY (topic)",
   },
