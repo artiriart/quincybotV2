@@ -1,6 +1,7 @@
 const Database = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
+const colors = require("colors");
 
 const dbPath = path.join(__dirname, "database.sqlite");
 const db = new Database(dbPath);
@@ -10,10 +11,11 @@ db.pragma("journal_mode = WAL");
 const schema = {
   // ===== DANK BOT DATA =====
   dank_items: {
-    name: "TEXT PRIMARY KEY",
+    name: "TEXT NOT NULL",
     market: "INTEGER DEFAULT 0",
     value: "INTEGER DEFAULT 0",
     application_emoji: "TEXT DEFAULT NULL",
+    _constraint: "PRIMARY KEY (name)",
   },
   dank_multipliers: {
     name: "TEXT NOT NULL",
@@ -28,15 +30,17 @@ const schema = {
     _constraint: "PRIMARY KEY (item_name, event_name)",
   },
   dank_level_rewards: {
-    level: "INTEGER PRIMARY KEY",
+    level: "INTEGER NOT NULL",
     name: "TEXT DEFAULT NULL",
     amount: "INTEGER DEFAULT 1",
     fishing: "BOOLEAN DEFAULT 0",
     title: "BOOLEAN DEFAULT 0",
+    _constraint: "PRIMARY KEY (level)",
   },
   dank_level_xp: {
-    level: "INTEGER PRIMARY KEY",
+    level: "INTEGER NOT NULL",
     xp: "INTEGER DEFAULT 0",
+    _constraint: "PRIMARY KEY (level)",
   },
   // ===== 7W7 BOT DATA =====
   sws_faq: {
@@ -53,20 +57,22 @@ const schema = {
     _constraint: "PRIMARY KEY (user_id, bot_name, rarity)",
   },
   izzi_cards: {
-    name: "TEXT PRIMARY KEY",
+    name: "TEXT NOT NULL",
     ability: "TEXT DEFAULT NULL",
     element: "TEXT DEFAULT NULL",
     event: "BOOLEAN DEFAULT 0",
     base_stats:
       'TEXT DEFAULT \'{"ATK": "80", "HP": "80", "DEF": "80", "SPD": "80", "ARM": "80"}\'',
+    _constraint: "PRIMARY KEY (name)",
   },
   izzi_market_prices: {
-    name: "TEXT PRIMARY KEY",
+    name: "TEXT NOT NULL",
     market_average: "INTEGER DEFAULT 0",
     rarity: "TEXT DEFAULT NULL",
+    _constraint: "PRIMARY KEY (name)",
   },
   izzi_talents: {
-    name: "TEXT PRIMARY KEY",
+    name: "TEXT NOT NULL",
     description: "TEXT DEFAULT NULL",
     application_emoji: "TEXT DEFAULT NULL",
   },
@@ -301,7 +307,7 @@ function safeQuery(sql, params = [], fallback = []) {
 
 function initDatabase() {
   syncTables();
-  console.log("Database schema is ready.");
+  console.log("Database schema is ready.".rainbow);
 }
 
 // ---------------- EXPORTS ----------------

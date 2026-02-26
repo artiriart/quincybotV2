@@ -1,17 +1,21 @@
-const fs = require("node:fs");
-const path = require("node:path");
 const {
   Client,
   Collection,
+  Events,
   GatewayIntentBits,
   Options,
   Partials,
 } = require("discord.js");
-process.env.DOTENV_CONFIG_QUIET=true;
-require("dotenv").config();
-const database = require("./database.js");
 
-database.initDatabase();
+process.env.DOTENV_CONFIG_QUIET = "true";
+require("dotenv").config();
+
+const database = require("./database.js");
+const {
+  loadSlashCommands,
+  loadEvents,
+  registerSlashCommands,
+} = require("./utils/loadSlash");
 
 global.db = database;
 global.botIds = {
@@ -20,110 +24,96 @@ global.botIds = {
   izzi: "784851074472345633",
   anigame: "571027211407196161",
 };
-global.ownerIds = process.env.OWNERS.split("|") || [];
+global.ownerIds = (process.env.OWNERS || "")
+  .split("|")
+  .map((id) => id.trim())
+  .filter(Boolean);
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-  partials: [Partials.Channel],
-  makeCache: Options.cacheWithLimits({
-    ...Options.DefaultMakeCacheSettings,
-    MessageManager: 0,
-    GuildMemberManager: 0,
-    PresenceManager: 0,
-    ThreadManager: 0,
-    ThreadMemberManager: 0,
-    GuildBanManager: 0,
-    GuildEmojiManager: 0,
-    GuildStickerManager: 0,
-    ReactionManager: 0,
-    VoiceStateManager: 0,
-    StageInstanceManager: 0,
-    GuildInviteManager: 0,
-    DMMessageManager: 0,
-    UserManager: 25,
+const client = Object.assign(
+  new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+    partials: [Partials.Channel],
+    makeCache: Options.cacheWithLimits({
+      ...Options.DefaultMakeCacheSettings,
+      MessageManager: 0,
+      GuildMemberManager: 0,
+      PresenceManager: 0,
+      ThreadManager: 0,
+      ThreadMemberManager: 0,
+      GuildBanManager: 0,
+      GuildEmojiManager: 0,
+      GuildStickerManager: 0,
+      ReactionManager: 0,
+      VoiceStateManager: 0,
+      StageInstanceManager: 0,
+      GuildInviteManager: 0,
+      DMMessageManager: 0,
+      UserManager: 25,
+    }),
+    sweepers: {
+      messages: {
+        interval: 60,
+        lifetime: 120,
+      },
+      users: {
+        interval: 300,
+        filter: () => (user) => user.bot,
+      },
+    },
   }),
-  sweepers: {
-    messages: {
-      interval: 60,
-      lifetime: 120,
+  {
+    commands: {
+      slash: { commands: new Collection(), subcommands: new Collection() },
+      prefix: { commands: new Collection(), aliases: new Collection() },
     },
-    users: {
-      interval: 300,
-      filter: () => (user) => user.bot,
-    },
+    events: new Collection(),
   },
-});
+);
 
-client.commands = new Collection();
-client.db = database;
-
-function loadCommands() {
-  const commandsDir = path.join(__dirname, "commands");
-  if (!fs.existsSync(commandsDir)) return;
-
-  for (const file of fs.readdirSync(commandsDir)) {
-    const filePath = path.join(commandsDir, file);
-    if (!fs.statSync(filePath).isFile()) continue;
-
-    const command = require(filePath);
-    if (!command || !command.data) continue;
-
-    const commandData = Array.isArray(command.data) ? command.data : [command.data];
-
-    for (const data of commandData) {
-      const json = typeof data.toJSON === "function" ? data.toJSON() : data;
-      if (!json || typeof json.name !== "string") continue;
-      client.commands.set(json.name, command);
-    }
-  }
-}
-
-function loadEvents() {
-  const eventsDir = path.join(__dirname, "events");
-  if (!fs.existsSync(eventsDir)) return;
-
-  for (const file of fs.readdirSync(eventsDir)) {
-    const filePath = path.join(eventsDir, file);
-    if (!fs.statSync(filePath).isFile()) continue;
-
-    const event = require(filePath);
-    if (!event) continue;
-
-    if (typeof event === "function") {
-      client.on(file, (...args) => event(...args, client));
-      continue;
-    }
-
-    if (typeof event.execute === "function" && typeof event.name === "string") {
-      if (event.once) {
-        client.once(event.name, (...args) => event.execute(...args, client));
-      } else {
-        client.on(event.name, (...args) => event.execute(...args, client));
-      }
-    }
-  }
-}
-
-loadCommands();
-loadEvents();
-
-client.once("ready", () => {
-  console.log(`Logged in as ${client.user.tag}`);
-});
+global.bot = client;
 
 client.on("error", (error) => {
   console.error("Discord client error:", error);
 });
 
-const token = process.env.BOT_TOKEN;
-if (!token) {
-  console.error("Missing BOT_TOKEN in environment.");
-  process.exit(1);
+client.once(Events.ClientReady, async (readyClient) => {
+  try {
+    const registered = await registerSlashCommands(readyClient);
+    console.log(
+      `Logged in as ${readyClient.user.username}. Registered ${registered} slash commands.`,
+    );
+  } catch (error) {
+    console.error("Slash command registration failed:", error);
+  }
+});
+
+async function start() {
+  const token = process.env.BOT_TOKEN;
+  if (!token) {
+    throw new Error("BOT_TOKEN is missing. Add it to your .env file.");
+  }
+
+  database.initDatabase();
+  const events = await loadEvents(client);
+  const slashes = await loadSlashCommands(client);
+  await client.login(token);
+  console.log(`Loaded ${events} events and ${slashes} slash commands.`);
 }
 
-client.login(token);
+start().catch((error) => {
+  console.error("client startup failed:", error);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (error) => {
+  console.error("Unhandled rejection:", error);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+});
