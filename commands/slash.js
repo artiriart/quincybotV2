@@ -1,0 +1,48 @@
+const { SlashCommandBuilder } = require("discord.js");
+
+module.exports = {
+  data: [
+    new SlashCommandBuilder()
+      .setName("calculator")
+      .setDescription("Your mobile Discord Calculator")
+      .addStringOption((option) =>
+        option
+          .setName("prompt")
+          .setDescription(
+            "The calculation you want to perform, accepts almost any math equation, return with beatiful LATEX",
+          )
+          .setRequired(true),
+      ),
+    new SlashCommandBuilder().setName("help").setDescription("Help command"),
+    new SlashCommandBuilder()
+      .setName("ping")
+      .setDescription("Bot latency & server information"),
+    new SlashCommandBuilder()
+      .setName("invite")
+      .setDescription("Get bot invite link"),
+    new SlashCommandBuilder()
+      .setName("dice")
+      .setDescription("Roll a custom dice")
+      .addIntegerOption((option) =>
+        option
+          .setName("range")
+          .setDescription("The range of the dice (default: 1-6)")
+          .setRequired(false),
+      )
+      .addIntegerOption((option) =>
+        option
+          .setName("amount")
+          .setDescription("The amount of dice to roll (default: 1)")
+          .setRequired(false),
+      )
+      .addBooleanOption((option) =>
+        option
+          .setName("unique")
+          .setDescription("Only unique numbers (default: true)")
+          .setRequired(false),
+      ),
+    new SlashCommandBuilder()
+      .setName("settings")
+      .setDescription("toggle settings"),
+  ],
+};
