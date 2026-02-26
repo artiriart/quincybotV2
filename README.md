@@ -1,3 +1,5 @@
+## Still getting built, dont use rn
+
 External ressources used:
 Emojis for decoration: https://feathericons.com/
 AI plugins: https://aistudio.google.com/api-keys – gemma-3-4b (maybe higher / lower for Karuta API card recog, if decide not to enable tesseract recog)
