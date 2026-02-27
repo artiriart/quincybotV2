@@ -11,6 +11,7 @@ process.env.DOTENV_CONFIG_QUIET = "true";
 require("dotenv").config();
 
 const database = require("./database.js");
+const { runStartupSync } = require("./functions/startupSync");
 const {
   loadSlashCommands,
   loadEvents,
@@ -76,6 +77,10 @@ const client = Object.assign(
 );
 
 global.bot = client;
+global.getUserIdFromMention = (text) => {
+  const match = text.match(/<@!?(\d+)>/);
+  return match ? match[1] : null;
+};
 
 client.on("error", (error) => {
   console.error("Discord client error:", error);
@@ -83,12 +88,11 @@ client.on("error", (error) => {
 
 client.once(Events.ClientReady, async (readyClient) => {
   try {
-    const registered = await registerSlashCommands(readyClient);
-    console.log(
-      `Logged in as ${readyClient.user.username}. Registered ${registered} slash commands.`,
-    );
+    await registerSlashCommands(readyClient);
+    await runStartupSync();
+    console.log(`Logged in as ${readyClient.user.username}.`.rainbow);
   } catch (error) {
-    console.error("Slash command registration failed:", error);
+    console.error("Startup initialization failed:", error);
   }
 });
 
@@ -102,7 +106,7 @@ async function start() {
   const events = await loadEvents(client);
   const slashes = await loadSlashCommands(client);
   await client.login(token);
-  console.log(`Loaded ${events} events and ${slashes} slash commands.`);
+  console.log(`Loaded ${events} events and ${slashes} slash commands.`.rainbow);
 }
 
 start().catch((error) => {

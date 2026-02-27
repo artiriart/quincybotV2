@@ -2,3 +2,19 @@
 - copy quincybot cogs to V2
 - populate customDankItemValues.json
 - Gemma 1b / Tesseract / off Karuta drop recog
+- on startup: load dank item DB https://dankmemer.lol/api/bot/items, load from customDankItemValues.json, create feather icon emojis https://api.github.com/repos/feathericons/feather/contents/icons, dank emojis, parse izzi cards into DB: https://api.izzi-xenex.xyz/api/v1/ums/xendex?per_page=2000, abilities: https://api.izzi-xenex.xyz/api/v1/ums/abilities (index emojis trough talent menu still, didnt find emoji api), items: https://api.izzi-xenex.xyz/api/v1/ums/items, for dank items and customdankitems and feather upload to appliacation emoji storage, if not already done.
+- utils.js: component V2 builder functions, DMuser function
+- /dev eval, edit multipliers, edit other-items, edit randomevents [Event, autocomplete from titles] [Tier] [Desc]
+
+- 7w7:
+  - Junk drops autodelete
+- anigame:
+  - clan/fshop reminders
+  - big raid input purge
+  - dex parser
+
+- karuta:
+  - drop recognition
+  - visit reminders
+
+- ## izzi:

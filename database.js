@@ -9,6 +9,11 @@ db.pragma("journal_mode = WAL");
 
 // ---- SCHEMA ----
 const schema = {
+  feather_emojis: {
+    name: "TEXT NOT NULL",
+    markdown: "TEXT NOT NULL",
+    _constraint: "PRIMARY KEY (name)",
+  },
   // ===== DANK BOT DATA =====
   dank_items: {
     name: "TEXT NOT NULL",
@@ -63,6 +68,7 @@ const schema = {
     event: "BOOLEAN DEFAULT 0",
     base_stats:
       'TEXT DEFAULT \'{"ATK": "80", "HP": "80", "DEF": "80", "SPD": "80", "ARM": "80"}\'',
+    darkzone: "BOOLEAN DEFAULT 0",
     _constraint: "PRIMARY KEY (name)",
   },
   izzi_market_prices: {
@@ -75,6 +81,15 @@ const schema = {
     name: "TEXT NOT NULL",
     description: "TEXT DEFAULT NULL",
     application_emoji: "TEXT DEFAULT NULL",
+    _constraint: "PRIMARY KEY (name)",
+  },
+  izzi_items: {
+    name: "TEXT NOT NULL",
+    category: "TEXT DEFAULT '[]'",
+    description: "TEXT DEFAULT NULL",
+    price: "INTEGER DEFAULT 0",
+    stats: "TEXT DEFAULT '{}'",
+    _constraint: "PRIMARY KEY (name)",
   },
   anigame_cards: {
     name: "TEXT PRIMARY KEY",
@@ -96,14 +111,21 @@ const schema = {
     _constraint: "PRIMARY KEY (user_id, card_name, type, rarity)",
   },
   // ===== USER DATA =====
+  states: {
+    id: "TEXT NOT NULL", // user_id or global
+    type: "TEXT NOT NULL",
+    state: "TEXT DEFAULT \'{}\'",
+    _constraint: "PRIMARY KEY (id, type)",
+  },
   reminders: {
     id: "INTEGER PRIMARY KEY AUTOINCREMENT",
     user_id: "TEXT NOT NULL",
     guild_id: "TEXT NOT NULL",
     channel_id: "TEXT NOT NULL",
     information:
-      'TEXT NOT NULL DEFAULT \'{"command":"","information":"Custom Reminder"}\'',
-    end: "TEXT DEFAULT NULL",
+      'TEXT NOT NULL DEFAULT \'{"command":"","information":"Custom Reminder", "type":"Custom Reminder"}\'',
+    end: "INTEGER DEFAULT 0",
+    dm: "BOOLEAN DEFAULT 0",
   },
   dank_stats: {
     user_id: "TEXT NOT NULL",
@@ -259,34 +281,34 @@ function upsertState(type, state, user_id = null) {
   if (user_id) {
     db.prepare(
       `
-      INSERT INTO user_states (type, state, user_id)
+      INSERT INTO states (id, type, state)
       VALUES (?, ?, ?)
       ON CONFLICT(type, user_id)
       DO UPDATE SET state=excluded.state
     `,
-    ).run(type, state, user_id);
+    ).run(user_id, type, state);
   } else {
     db.prepare(
       `
-      INSERT INTO global_states (type, state)
-      VALUES (?, ?)
+      INSERT INTO states (id, type, state)
+      VALUES (?, ?, ?)
       ON CONFLICT(type)
       DO UPDATE SET state=excluded.state
     `,
-    ).run(type, state);
+    ).run("global", type, state);
   }
 }
 
 function getState(type, user_id = null) {
   if (user_id) {
     const row = db
-      .prepare(`SELECT state FROM user_states WHERE type=? AND user_id=?`)
-      .get(type, user_id);
+      .prepare(`SELECT state FROM states WHERE type=? AND id=?`)
+      .get(type, id);
     return row ? row.state : null;
   } else {
     const row = db
-      .prepare(`SELECT state FROM global_states WHERE type=?`)
-      .get(type);
+      .prepare(`SELECT state FROM states WHERE type=? AND id=\'global\'`)
+      .get(type, id);
     return row ? row.state : null;
   }
 }
@@ -305,6 +327,71 @@ function safeQuery(sql, params = [], fallback = []) {
   }
 }
 
+function getDankItemEmojiMarkdown(itemName) {
+  const name = String(itemName || "").trim();
+  if (!name) return null;
+
+  const row = db
+    .prepare(
+      `
+      SELECT application_emoji
+      FROM dank_items
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+    .get(name);
+
+  return row?.application_emoji || null;
+}
+
+function getFeatherEmojiMarkdown(iconName) {
+  const name = String(iconName || "").trim();
+  if (!name) return null;
+
+  const row = db
+    .prepare(
+      `
+      SELECT markdown
+      FROM feather_emojis
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+    .get(name);
+
+  return row?.markdown || null;
+}
+
+function createReminder(
+  user_id,
+  channel,
+  minutes,
+  information = { command: "", information: "Custom Reminder" },
+  dm = false,
+) {
+  safeQuery(
+    `
+  INSERT INTO reminders (
+    user_id,
+    guild_id,
+    channel_id,
+    information,
+    end,
+    dm
+  ) VALUES (?, ?, ?, ?, ?, ?)
+`,
+    [
+      user_id,
+      channel.guild.id,
+      channel.id,
+      JSON.stringify(information),
+      Date.now() + minutes * 60000 ?? 0,
+      dm ? 1 : 0,
+    ],
+  );
+}
+
 function initDatabase() {
   syncTables();
   console.log("Database schema is ready.".rainbow);
@@ -319,4 +406,7 @@ module.exports = {
   upsertState,
   getState,
   safeQuery,
+  getDankItemEmojiMarkdown,
+  getFeatherEmojiMarkdown,
+  createReminder,
 };
