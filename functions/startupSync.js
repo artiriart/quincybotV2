@@ -3,6 +3,7 @@ const path = require("path");
 const sharp = require("sharp");
 
 // todo: index dank memer fishing related items. Default value is Token calculation copied from V2, changable trough dev command
+// todo: after this we get rid of the customDankItemValues.json file. Fish Endpoint: https://dankmemer.lol/api/bot/fish/data [data.baits.items, data.tools.items]
 
 const DANK_ITEMS_URL = "https://dankmemer.lol/api/bot/items";
 const FEATHER_ICONS_URL =
