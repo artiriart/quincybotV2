@@ -2,10 +2,13 @@ const fs = require("fs");
 const path = require("path");
 const sharp = require("sharp");
 
+// todo: index dank memer fishing related items. Default value is Token calculation copied from V2, changable trough dev command
+
 const DANK_ITEMS_URL = "https://dankmemer.lol/api/bot/items";
 const FEATHER_ICONS_URL =
   "https://api.github.com/repos/feathericons/feather/contents/icons";
-const IZZI_CARDS_URL = "https://api.izzi-xenex.xyz/api/v1/ums/xendex?per_page=2000";
+const IZZI_CARDS_URL =
+  "https://api.izzi-xenex.xyz/api/v1/ums/xendex?per_page=2000";
 const IZZI_ABILITIES_URL = "https://api.izzi-xenex.xyz/api/v1/ums/abilities";
 const IZZI_ITEMS_URL = "https://api.izzi-xenex.xyz/api/v1/ums/items";
 const ANIGAME_SHEET_GVIZ_URL =
@@ -37,7 +40,9 @@ function normalizeEmojiName(rawName, prefix = "") {
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
 
-  const combined = `${prefix}${cleaned}`.replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+  const combined = `${prefix}${cleaned}`
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
   let name = combined || `${prefix}emoji`;
 
   if (!/^[a-z]/.test(name)) {
@@ -98,7 +103,10 @@ function loadCustomDankValues() {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    console.error("Custom dank item values load failed:", error.message || error);
+    console.error(
+      "Custom dank item values load failed:",
+      error.message || error,
+    );
     return [];
   }
 }
@@ -187,13 +195,17 @@ async function runOneTimeEmojiReset(sqlite) {
 
   const app = global.bot?.application;
   if (!app?.emojis) {
-    console.warn("One-time emoji reset skipped: application emoji manager unavailable.");
+    console.warn(
+      "One-time emoji reset skipped: application emoji manager unavailable.",
+    );
     return;
   }
 
   const collection = await app.emojis.fetch().catch(() => null);
   if (!collection) {
-    console.warn("One-time emoji reset skipped: unable to fetch application emojis.");
+    console.warn(
+      "One-time emoji reset skipped: unable to fetch application emojis.",
+    );
     return;
   }
 
@@ -233,9 +245,21 @@ function normalizeBaseStats(stats, mapping) {
   });
 }
 
+function normalizeIzziItemStats(stats) {
+  return JSON.stringify({
+    ATK: String(toInt(stats?.strength, 80)),
+    HP: String(toInt(stats?.vitality, 80)),
+    DEF: String(toInt(stats?.defense, 80)),
+    SPD: String(toInt(stats?.dexterity, 80)),
+    ARM: String(toInt(stats?.intelligence, 80)),
+  });
+}
+
 async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
   const app = global.bot?.application;
-  const dankPayload = extractListPayload(await fetchJson(DANK_ITEMS_URL, "Dank items"));
+  const dankPayload = extractListPayload(
+    await fetchJson(DANK_ITEMS_URL, "Dank items"),
+  );
   const customValues = loadCustomDankValues();
 
   const byName = new Map();
@@ -268,7 +292,8 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
 
     existing.market = toInt(custom?.market, existing.market);
     existing.value = toInt(custom?.value, existing.value);
-    existing.customEmojiURL = String(custom?.emoji_url || "").trim() || existing.customEmojiURL;
+    existing.customEmojiURL =
+      String(custom?.emoji_url || "").trim() || existing.customEmojiURL;
     byName.set(name, existing);
   }
 
@@ -331,22 +356,25 @@ async function syncFeatherEmojis(sqlite, existingEmojis) {
   for (const icon of featherPayload) {
     if (!icon || icon.type !== "file") continue;
 
-    const iconName = String(icon.name || "").replace(/\.svg$/i, "").trim();
+    const iconName = String(icon.name || "")
+      .replace(/\.svg$/i, "")
+      .trim();
     if (!iconName) continue;
 
     const emojiName = normalizeEmojiName(iconName, "feather_");
     let emoji = existingEmojis.get(emojiName.toLowerCase()) || null;
 
     if (!emoji && app?.emojis) {
-      const attachment = await getFeatherPngAttachment(iconName, icon.download_url).catch(
-        (error) => {
-          console.error(
-            `Feather png conversion failed for ${emojiName}:`,
-            error?.message || error,
-          );
-          return null;
-        },
-      );
+      const attachment = await getFeatherPngAttachment(
+        iconName,
+        icon.download_url,
+      ).catch((error) => {
+        console.error(
+          `Feather png conversion failed for ${emojiName}:`,
+          error?.message || error,
+        );
+        return null;
+      });
 
       emoji = await ensureApplicationEmoji(
         app,
@@ -368,7 +396,9 @@ async function syncFeatherEmojis(sqlite, existingEmojis) {
 }
 
 async function syncIzziCards(sqlite) {
-  const cards = extractListPayload(await fetchJson(IZZI_CARDS_URL, "Izzi cards"));
+  const cards = extractListPayload(
+    await fetchJson(IZZI_CARDS_URL, "Izzi cards"),
+  );
   const upsertCard = sqlite.prepare(`
     INSERT INTO izzi_cards (name, ability, element, event, base_stats, darkzone)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -424,11 +454,15 @@ async function syncIzziAbilities(sqlite) {
     upsertAbility.run(name, String(raw?.description || "").trim() || null);
   }
 
-  console.log(`Izzi abilities sync complete: ${abilities.length} rows upserted.`);
+  console.log(
+    `Izzi abilities sync complete: ${abilities.length} rows upserted.`,
+  );
 }
 
 async function syncIzziItems(sqlite) {
-  const items = extractListPayload(await fetchJson(IZZI_ITEMS_URL, "Izzi items"));
+  const items = extractListPayload(
+    await fetchJson(IZZI_ITEMS_URL, "Izzi items"),
+  );
 
   const upsertItem = sqlite.prepare(`
     INSERT INTO izzi_items (name, category, description, price, stats)
@@ -449,7 +483,7 @@ async function syncIzziItems(sqlite) {
       JSON.stringify(Array.isArray(raw?.category) ? raw.category : []),
       String(raw?.description || "").trim() || null,
       toInt(raw?.price),
-      JSON.stringify(raw?.stats || {}),
+      normalizeIzziItemStats(raw?.stats || {}),
     );
   }
 
@@ -467,9 +501,14 @@ function parseGvizJson(text) {
 }
 
 async function fetchAnigameRows() {
-  const gvizText = await fetchText(ANIGAME_SHEET_GVIZ_URL, "Anigame sheet GViz");
+  const gvizText = await fetchText(
+    ANIGAME_SHEET_GVIZ_URL,
+    "Anigame sheet GViz",
+  );
   const gviz = parseGvizJson(gvizText);
-  const headers = (gviz?.table?.cols || []).map((col) => String(col?.label || "").trim());
+  const headers = (gviz?.table?.cols || []).map((col) =>
+    String(col?.label || "").trim(),
+  );
   const rows = (gviz?.table?.rows || []).map((row) =>
     (row?.c || []).map((cell) => (cell ? cell.v : "")),
   );
@@ -480,7 +519,12 @@ async function fetchAnigameRows() {
 async function syncAnigameCards(sqlite) {
   const { headers, rows } = await fetchAnigameRows();
   const indexByHeader = new Map(
-    headers.map((header, index) => [String(header || "").trim().toLowerCase(), index]),
+    headers.map((header, index) => [
+      String(header || "")
+        .trim()
+        .toLowerCase(),
+      index,
+    ]),
   );
 
   const getIndex = (...keys) => {

@@ -1,20 +1,46 @@
 - calculator uses latex https://editor.codecogs.com/?latex=3%5E%7B4%5E5%7D%20%2B%20%5Cfrac%7B1%7D%7B2%7D#0
 - copy quincybot cogs to V2
 - populate customDankItemValues.json
-- Gemma 1b / Tesseract / off Karuta drop recog
-- on startup: load dank item DB https://dankmemer.lol/api/bot/items, load from customDankItemValues.json, create feather icon emojis https://api.github.com/repos/feathericons/feather/contents/icons, dank emojis, parse izzi cards into DB: https://api.izzi-xenex.xyz/api/v1/ums/xendex?per_page=2000, abilities: https://api.izzi-xenex.xyz/api/v1/ums/abilities (index emojis trough talent menu still, didnt find emoji api), items: https://api.izzi-xenex.xyz/api/v1/ums/items, for dank items and customdankitems and feather upload to appliacation emoji storage, if not already done.
 - utils.js: component V2 builder functions, DMuser function
-- /dev eval, edit multipliers, edit other-items, edit randomevents [Event, autocomplete from titles] [Tier] [Desc]
+
+## Code functions which arent extract X message
 
 - 7w7:
-  - Junk drops autodelete
+  - Junk drops autodelete setter (per server) + map out hex -> Rarity (or emoji as it is rn)
+  - presets viewer with pagnation and V2 components
 - anigame:
-  - clan/fshop reminders
-  - big raid input purge
-  - dex parser
+  - clan/fshop reminder panel (to edit remind cards)
+  -
 
 - karuta:
   - drop recognition
   - visit reminders
+  - card recognition
+  - wishlist for card recog via series with script ENV setting: Gemma 1b / Tesseract / off
 
-- ## izzi:
+- lab:
+  - reconstruct whole module to work better
+  - Component V2 & better menus & home UI with all features
+  - keep older logic in terms of core game logic
+
+- utils:
+  - DMuser function
+  - user input numbers parser (for number user inputs)
+  - custom reminder command
+
+- dankmemer:
+  - harmony between multi XP & level calculator
+  - store exact multi values in db so can use /multipliers xp user multis (user doesnt have to manually add)
+  - coins / luck sources and also xp can be indexed via /dev
+  - omega / prestige calculator
+  - Nuke stat tracker + Component V2
+  -
+
+- calculator:
+  - support almost any math equation
+  - LATEX support via mediagallery component & https://editor.codecogs.com/?latex=3%5E%7B4%5E5%7D%20%2B%20%5Cfrac%7B1%7D%7B2%7D#0
+    - Either create own converter e.g. \times -> x or find npm
+
+## All bots:
+
+- settings to toggle and filter by user

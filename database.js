@@ -169,6 +169,11 @@ const schema = {
     description: "TEXT DEFAULT NULL",
     _constraint: "PRIMARY KEY (user_id, name)",
   },
+  sws_autodelete: {
+    guild_id: "TEXT NOT NULL",
+    hex_color: "TEXT NOT NULL",
+    _constraint: "PRIMARY KEY (guild_id, hex_color)",
+  },
   user_settings_toggles: {
     user_id: "TEXT NOT NULL",
     type: "TEXT NOT NULL",
