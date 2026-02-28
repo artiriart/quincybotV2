@@ -54,7 +54,7 @@ const schema = {
     _constraint: "PRIMARY KEY (topic)",
   },
   // ===== ANIME BOTS DATA =====
-  card_claimes: {
+  card_claims: {
     user_id: "TEXT NOT NULL",
     bot_name: "TEXT NOT NULL",
     rarity: "TEXT NOT NULL",
@@ -118,14 +118,15 @@ const schema = {
     _constraint: "PRIMARY KEY (id, type)",
   },
   reminders: {
-    id: "INTEGER PRIMARY KEY AUTOINCREMENT",
+    type: "TEXT NOT NULL",
     user_id: "TEXT NOT NULL",
     guild_id: "TEXT NOT NULL",
     channel_id: "TEXT NOT NULL",
     information:
-      'TEXT NOT NULL DEFAULT \'{"command":"","information":"Custom Reminder", "type":"Custom Reminder"}\'',
+      'TEXT NOT NULL DEFAULT \'{"command":"","information":"Custom Reminder"}\'',
     end: "INTEGER DEFAULT 0",
     dm: "BOOLEAN DEFAULT 0",
+    _constraint: "PRIMARY KEY (type, user_id)",
   },
   dank_stats: {
     user_id: "TEXT NOT NULL",
@@ -158,6 +159,7 @@ const schema = {
   },
   sws_items: {
     name: "TEXT PRIMARY KEY",
+    id: "INTEGER DEFAULT 1",
     market: "TEXT DEFAULT 0",
     url: "TEXT DEFAULT NULL",
     description: "TEXT DEFAULT NULL",
@@ -368,30 +370,56 @@ function getFeatherEmojiMarkdown(iconName) {
   return row?.markdown || null;
 }
 
+/**
+ * Create a new reminder entry in the database.
+ *
+ * @param {string} user_id - Discord user ID of the reminder owner.
+ * @param {import("discord.js").TextBasedChannel} channel - Channel where the reminder was created.
+ * @param {number} minutes - Duration in minutes until the reminder ends.
+ * @param {string} type - Reminder type identifier (e.g. "custom", "command", etc).
+ * @param {{ command?: string, information?: string }} [information]
+ *        Optional extra data stored as JSON.
+ *        Default: { command: "", information: "Custom Reminder" }
+ * @param {boolean} [dm=false]
+ *        Whether the reminder should be sent via DM (true) or in the channel (false).
+ *
+ * @example
+ * createReminder(
+ *   "734844583778975845",
+ *   message.channel,
+ *   30,
+ *   "custom",
+ *   { command: "pls daily", information: "Claim daily" },
+ *   true
+ * );
+ */
 function createReminder(
   user_id,
   channel,
   minutes,
+  type,
   information = { command: "", information: "Custom Reminder" },
   dm = false,
 ) {
   safeQuery(
     `
-  INSERT INTO reminders (
-    user_id,
-    guild_id,
-    channel_id,
-    information,
-    end,
-    dm
-  ) VALUES (?, ?, ?, ?, ?, ?)
-`,
+    INSERT INTO reminders (
+      user_id,
+      guild_id,
+      channel_id,
+      type,
+      information,
+      end,
+      dm
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
     [
       user_id,
-      channel.guild.id,
+      channel.guild?.id ?? null,
       channel.id,
+      type,
       JSON.stringify(information),
-      Date.now() + minutes * 60000 ?? 0,
+      Date.now() + minutes * 60000,
       dm ? 1 : 0,
     ],
   );
