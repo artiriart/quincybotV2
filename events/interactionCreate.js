@@ -1,11 +1,18 @@
 const { handleSlashInteraction } = require("../functions/interactions/slash");
+const { handleAutocompleteInteraction } = require("../functions/interactions/autocomplete");
 const { handleButtonInteraction } = require("../functions/interactions/button");
 const { handleModalInteraction } = require("../functions/interactions/modal");
+const { handleSelectMenuInteraction } = require("../functions/interactions/selectMenu");
 
 module.exports = {
   name: "interactionCreate",
   async execute(interaction, client) {
     try {
+      if (interaction?.isAutocomplete?.()) {
+        await handleAutocompleteInteraction(interaction, client);
+        return;
+      }
+
       if (interaction?.isChatInputCommand?.()) {
         await handleSlashInteraction(interaction, client);
         return;
@@ -13,6 +20,11 @@ module.exports = {
 
       if (interaction?.isButton?.()) {
         await handleButtonInteraction(interaction, client);
+        return;
+      }
+
+      if (interaction?.isStringSelectMenu?.()) {
+        await handleSelectMenuInteraction(interaction, client);
         return;
       }
 

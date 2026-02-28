@@ -4,7 +4,7 @@
 ## Code functions which arent extract X message
 
 - 7w7:
-  - Junk drops autodelete setter (per server) + map out hex -> Rarity (or emoji as it is rn)
+  - Junk drops autodelete setter (per server) + map out emoji -> Rarity (or emoji as it is rn)
   - presets viewer with pagnation and V2 components
 - anigame:
   - clan/fshop reminder panel (to edit remind cards)

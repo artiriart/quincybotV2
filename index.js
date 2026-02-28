@@ -41,7 +41,6 @@ const client = Object.assign(
     partials: [Partials.Channel],
     makeCache: Options.cacheWithLimits({
       ...Options.DefaultMakeCacheSettings,
-      MessageManager: 0,
       GuildMemberManager: 0,
       PresenceManager: 0,
       ThreadManager: 0,
@@ -54,16 +53,12 @@ const client = Object.assign(
       StageInstanceManager: 0,
       GuildInviteManager: 0,
       DMMessageManager: 0,
-      UserManager: 25,
+      UserManager: 5000,
     }),
     sweepers: {
       messages: {
         interval: 60,
         lifetime: 120,
-      },
-      users: {
-        interval: 300,
-        filter: () => (user) => user.bot,
       },
     },
   }),

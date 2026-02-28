@@ -28,7 +28,7 @@ const schema = {
     amount: "REAL DEFAULT 1",
     description: "TEXT DEFAULT NULL",
     type: "TEXT NOT NULL",
-    _constraint: "PRIMARY KEY (name, type)",
+    _constraint: "PRIMARY KEY (name, amount, type)",
   },
   dank_randomevent_lootpool: {
     item_name: "TEXT NOT NULL",
@@ -54,12 +54,26 @@ const schema = {
     _constraint: "PRIMARY KEY (topic)",
   },
   // ===== ANIME BOTS DATA =====
+  card_stats: {
+    user_id: "TEXT NOT NULL",
+    bot_name: "TEXT NOT NULL",
+    rarity: "TEXT NOT NULL",
+    amount: "INTEGER DEFAULT 1",
+    _constraint: "PRIMARY KEY (user_id, bot_name, rarity)",
+  },
   card_claims: {
     user_id: "TEXT NOT NULL",
     bot_name: "TEXT NOT NULL",
     rarity: "TEXT NOT NULL",
     amount: "INTEGER DEFAULT 1",
     _constraint: "PRIMARY KEY (user_id, bot_name, rarity)",
+  },
+  karuta_cards: {
+    name: "TEXT NOT NULL",
+    series: "TEXT NOT NULL",
+    wishlist: "INTEGER DEFAULT 0",
+    print: "INTEGER DEFAULT 5000",
+    _constraint: "PRIMARY KEY (name, series)",
   },
   izzi_cards: {
     name: "TEXT NOT NULL",
@@ -158,8 +172,16 @@ const schema = {
     revenue: "INTEGER DEFAULT 0",
     _constraint: "PRIMARY KEY (host_user_id)",
   },
+  dank_stats_option_meta: {
+    scope: "TEXT NOT NULL",
+    option_value: "TEXT NOT NULL",
+    item_name: "TEXT DEFAULT NULL",
+    emoji: "TEXT DEFAULT NULL",
+    description: "TEXT DEFAULT NULL",
+    _constraint: "PRIMARY KEY (scope, option_value)",
+  },
   sws_items: {
-    name: "TEXT PRIMARY KEY",
+    name: "TEXT NOT NULL",
     id: "INTEGER DEFAULT 1",
     market: "TEXT DEFAULT 0",
     emoji_id: "TEXT DEFAULT NULL",
@@ -223,6 +245,19 @@ function getTableColumns(table) {
 }
 
 /**
+ * Get CREATE TABLE SQL for an existing table.
+ *
+ * @param {string} table
+ * @returns {string}
+ */
+function getTableCreateSql(table) {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(table);
+  return String(row?.sql || "");
+}
+
+/**
  * Create a table from a schema definition object.
  *
  * @param {string} table
@@ -270,9 +305,20 @@ function syncTable(table, definition) {
   }
 
   // If columns mismatch (removed/changed), rebuild table
+  const existingCreateSql = getTableCreateSql(table);
+  const normalize = (input) =>
+    String(input || "")
+      .replace(/\s+/g, "")
+      .toUpperCase();
+  const expectedConstraint = normalize(definition._constraint);
+  const hasExpectedConstraint = expectedConstraint
+    ? normalize(existingCreateSql).includes(expectedConstraint)
+    : true;
+
   const mismatch =
     existingCols.some((c) => !definedCols.includes(c)) ||
-    definedCols.length !== existingCols.length;
+    definedCols.length !== existingCols.length ||
+    !hasExpectedConstraint;
 
   if (mismatch) {
     const temp = `${table}_backup_${Date.now()}`;
@@ -328,6 +374,7 @@ function syncTables() {
  * @returns {void}
  */
 function upsertState(type, state, user_id = null, isPermanent = true) {
+  const persistent = isPermanent ? 1 : 0;
   if (user_id) {
     db.prepare(
       `
@@ -336,7 +383,7 @@ function upsertState(type, state, user_id = null, isPermanent = true) {
       ON CONFLICT(id, type)
       DO UPDATE SET state=excluded.state
     `,
-    ).run(user_id, type, state, isPermanent);
+    ).run(user_id, type, state, persistent);
   } else {
     db.prepare(
       `
@@ -345,7 +392,7 @@ function upsertState(type, state, user_id = null, isPermanent = true) {
       ON CONFLICT(id, type)
       DO UPDATE SET state=excluded.state
     `,
-    ).run("global", type, state, isPermanent);
+    ).run("global", type, state, persistent);
   }
 }
 
@@ -483,6 +530,12 @@ function createReminder(
       end,
       dm
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(type, user_id) DO UPDATE SET
+      guild_id = excluded.guild_id,
+      channel_id = excluded.channel_id,
+      information = excluded.information,
+      end = excluded.end,
+      dm = excluded.dm
     `,
     [
       user_id,
@@ -503,6 +556,23 @@ function createReminder(
  */
 function initDatabase() {
   syncTables();
+  // Backfill legacy claims table into the newer stats table.
+  const legacyClaims = safeQuery(
+    `SELECT user_id, bot_name, rarity, amount FROM card_claims`,
+    [],
+    [],
+  );
+  for (const row of legacyClaims) {
+    safeQuery(
+      `
+      INSERT INTO card_stats (user_id, bot_name, rarity, amount)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, bot_name, rarity)
+      DO UPDATE SET amount = card_stats.amount + excluded.amount
+      `,
+      [row.user_id, row.bot_name, row.rarity, row.amount],
+    );
+  }
   console.log("Database schema is ready.".rainbow);
 }
 
