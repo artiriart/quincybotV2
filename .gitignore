@@ -3,3 +3,4 @@ node_modules
 package-lock.json
 .env
 database.sqlite*
+AI_ASSISTANT_GUIDE.txt

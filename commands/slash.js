@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require("discord.js");
+const { routeSlashCommand } = require("../functions/interactions/slashRouter");
 
 module.exports = {
   data: [
@@ -45,4 +46,8 @@ module.exports = {
       .setName("settings")
       .setDescription("toggle settings"),
   ],
+  async execute(interaction, client) {
+    if (!interaction?.isChatInputCommand?.()) return;
+    await routeSlashCommand(interaction, client);
+  },
 };
