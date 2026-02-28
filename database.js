@@ -20,6 +20,7 @@ const schema = {
     market: "INTEGER DEFAULT 0",
     value: "INTEGER DEFAULT 0",
     application_emoji: "TEXT DEFAULT NULL",
+    fishing: "BOOLEAN DEFAULT 0",
     _constraint: "PRIMARY KEY (name)",
   },
   dank_multipliers: {
@@ -38,7 +39,6 @@ const schema = {
     level: "INTEGER NOT NULL",
     name: "TEXT DEFAULT NULL",
     amount: "INTEGER DEFAULT 1",
-    fishing: "BOOLEAN DEFAULT 0",
     title: "BOOLEAN DEFAULT 0",
     _constraint: "PRIMARY KEY (level)",
   },
@@ -115,6 +115,7 @@ const schema = {
     id: "TEXT NOT NULL", // user_id or global
     type: "TEXT NOT NULL",
     state: "TEXT DEFAULT \'{}\'",
+    isPermanent: "BOOLEAN DEFAULT 1",
     _constraint: "PRIMARY KEY (id, type)",
   },
   reminders: {
@@ -133,7 +134,7 @@ const schema = {
     item_name: "TEXT NOT NULL",
     item_amount: "INTEGER DEFAULT 0",
     stat_type: "TEXT NOT NULL",
-    _constraint: "PRIMARY KEY (user_id, stat_type)",
+    _constraint: "PRIMARY KEY (user_id, item_name, stat_type)",
   },
   dank_selected_multipliers: {
     user_id: "TEXT NOT NULL",
@@ -197,6 +198,12 @@ const schema = {
 
 // ---------------- SCHEMA SYNC ----------------
 
+/**
+ * Check whether a table exists in the current SQLite database.
+ *
+ * @param {string} table
+ * @returns {boolean}
+ */
 function tableExists(table) {
   const row = db
     .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
@@ -204,10 +211,23 @@ function tableExists(table) {
   return !!row;
 }
 
+/**
+ * Get all columns for a table using SQLite `PRAGMA table_info`.
+ *
+ * @param {string} table
+ * @returns {Array<{ cid: number, name: string, type: string, notnull: number, dflt_value: any, pk: number }>}
+ */
 function getTableColumns(table) {
   return db.prepare(`PRAGMA table_info(${table})`).all();
 }
 
+/**
+ * Create a table from a schema definition object.
+ *
+ * @param {string} table
+ * @param {Record<string, string>} definition
+ * @returns {void}
+ */
 function createTable(table, definition) {
   const cols = [];
   for (const [col, def] of Object.entries(definition)) {
@@ -220,6 +240,14 @@ function createTable(table, definition) {
   db.prepare(sql).run();
 }
 
+/**
+ * Sync an existing table with the configured schema definition.
+ * Adds missing columns and rebuilds the table if the layout mismatches.
+ *
+ * @param {string} table
+ * @param {Record<string, string>} definition
+ * @returns {void}
+ */
 function syncTable(table, definition) {
   if (!tableExists(table)) {
     createTable(table, definition);
@@ -262,6 +290,11 @@ function syncTable(table, definition) {
   }
 }
 
+/**
+ * Sync all schema tables and remove non-schema tables.
+ *
+ * @returns {void}
+ */
 function syncTables() {
   for (const [table, definition] of Object.entries(schema)) {
     syncTable(table, definition);
@@ -284,49 +317,74 @@ function syncTables() {
 
 // ---------------- FUNCTIONS ----------------
 
-function upsertState(type, state, user_id = null) {
+/**
+ * Insert or update a state row.
+ *
+ * @param {string} type
+ * @param {string} state
+ * @param {string | null} [user_id=null]
+ * @param {boolean} [isPermanent=true]
+ * @returns {void}
+ */
+function upsertState(type, state, user_id = null, isPermanent = true) {
   if (user_id) {
     db.prepare(
       `
-      INSERT INTO states (id, type, state)
-      VALUES (?, ?, ?)
-      ON CONFLICT(type, user_id)
+      INSERT INTO states (id, type, state, isPermanent)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(id, type)
       DO UPDATE SET state=excluded.state
     `,
-    ).run(user_id, type, state);
+    ).run(user_id, type, state, isPermanent);
   } else {
     db.prepare(
       `
-      INSERT INTO states (id, type, state)
-      VALUES (?, ?, ?)
-      ON CONFLICT(type)
+      INSERT INTO states (id, type, state, isPermanent)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(id, type)
       DO UPDATE SET state=excluded.state
     `,
-    ).run("global", type, state);
+    ).run("global", type, state, isPermanent);
   }
 }
 
+/**
+ * Read a state row by type and owner.
+ *
+ * @param {string} type
+ * @param {string | null} [user_id=null]
+ * @returns {string | null}
+ */
 function getState(type, user_id = null) {
   if (user_id) {
     const row = db
       .prepare(`SELECT state FROM states WHERE type=? AND id=?`)
-      .get(type, id);
+      .get(type, user_id);
     return row ? row.state : null;
   } else {
     const row = db
-      .prepare(`SELECT state FROM states WHERE type=? AND id=\'global\'`)
-      .get(type, id);
+      .prepare(`SELECT state FROM states WHERE type=? AND id='global'`)
+      .get(type);
     return row ? row.state : null;
   }
 }
 
+/**
+ * Execute a database query safely.
+ * `SELECT` statements return all rows; non-`SELECT` statements return run metadata.
+ *
+ * @param {string} sql
+ * @param {any[]} [params=[]]
+ * @param {any} [fallback=[]]
+ * @returns {any}
+ */
 function safeQuery(sql, params = [], fallback = []) {
   try {
     const stmt = db.prepare(sql);
     if (sql.trim().toLowerCase().startsWith("select")) {
-      return stmt.all(params);
+      return stmt.all(...params);
     } else {
-      return stmt.run(params);
+      return stmt.run(...params);
     }
   } catch (err) {
     console.error("safeQuery failed:", err.message);
@@ -334,6 +392,12 @@ function safeQuery(sql, params = [], fallback = []) {
   }
 }
 
+/**
+ * Resolve the configured application emoji markdown for a Dank item name.
+ *
+ * @param {string} itemName
+ * @returns {string | null}
+ */
 function getDankItemEmojiMarkdown(itemName) {
   const name = String(itemName || "").trim();
   if (!name) return null;
@@ -352,6 +416,12 @@ function getDankItemEmojiMarkdown(itemName) {
   return row?.application_emoji || null;
 }
 
+/**
+ * Resolve a Feather icon markdown by icon name.
+ *
+ * @param {string} iconName
+ * @returns {string | null}
+ */
 function getFeatherEmojiMarkdown(iconName) {
   const name = String(iconName || "").trim();
   if (!name) return null;
@@ -425,6 +495,11 @@ function createReminder(
   );
 }
 
+/**
+ * Initialize and synchronize database schema tables.
+ *
+ * @returns {void}
+ */
 function initDatabase() {
   syncTables();
   console.log("Database schema is ready.".rainbow);

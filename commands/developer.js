@@ -20,13 +20,6 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
           subcommand
-            .setName("other-items")
-            .setDescription(
-              "Panel to edit dankmemer extra items (mostly fishing related items)",
-            ),
-        )
-        .addSubcommand((subcommand) =>
-          subcommand
             .setName("randomevents")
             .setDescription(
               "Panel to edit dankmemer random events list (e.g. for changing lb order)",

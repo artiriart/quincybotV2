@@ -6,6 +6,7 @@ const sharp = require("sharp");
 // todo: after this we get rid of the customDankItemValues.json file. Fish Endpoint: https://dankmemer.lol/api/bot/fish/data [data.baits.items, data.tools.items]
 
 const DANK_ITEMS_URL = "https://dankmemer.lol/api/bot/items";
+const DANK_FISH_DATA_URL = "https://dankmemer.lol/api/bot/fish/data";
 const FEATHER_ICONS_URL =
   "https://api.github.com/repos/feathericons/feather/contents/icons";
 const IZZI_CARDS_URL =
@@ -22,6 +23,13 @@ const CUSTOM_DANK_VALUES_PATH = path.join(
   "customDankItemValues.json",
 );
 const EMOJI_RESET_STATE_KEY = "startup_emoji_reset_v1";
+const DANK_CUSTOM_ITEM_IMAGES = {
+  "Fish Tokens":
+    "https://cdn.discordapp.com/emojis/1157677856596435086.png",
+  "Skin Fragments":
+    "https://cdn.discordapp.com/emojis/1060272407471984710.png",
+  DMC: "https://cdn.discordapp.com/emojis/1105833876032606350.png",
+};
 
 let startupSyncPromise = null;
 
@@ -261,6 +269,7 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
   const dankPayload = extractListPayload(
     await fetchJson(DANK_ITEMS_URL, "Dank items"),
   );
+  const fishPayload = await fetchJson(DANK_FISH_DATA_URL, "Dank fish data");
   const customValues = loadCustomDankValues();
 
   const byName = new Map();
@@ -275,6 +284,7 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
       imageURL: String(raw?.imageURL || "").trim() || null,
       rawEmoji: String(raw?.emoji || "").trim() || null,
       customEmojiURL: null,
+      fishing: 0,
     });
   }
 
@@ -289,22 +299,139 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
       imageURL: null,
       rawEmoji: null,
       customEmojiURL: null,
+      fishing: 0,
     };
 
     existing.market = toInt(custom?.market, existing.market);
     existing.value = toInt(custom?.value, existing.value);
     existing.customEmojiURL =
       String(custom?.emoji_url || "").trim() || existing.customEmojiURL;
+    existing.fishing = custom?.fishing ? 1 : existing.fishing;
     byName.set(name, existing);
   }
 
+  const normalizedItems = new Map(
+    Array.from(byName.values()).map((item) => [
+      String(item.name || "").trim().toLowerCase(),
+      {
+        market: Number(item.market) || 0,
+        value: Number(item.value) || 0,
+      },
+    ]),
+  );
+
+  const avgFishTokenPerUnit = (() => {
+    const { totalRatio, count } = Object.entries({
+      "tentacled temptation": 225,
+      "inflated delicacy": 563,
+      "prismatic delight": 749,
+    }).reduce(
+      (acc, [specialName, tokenValue]) => {
+        const item = normalizedItems.get(specialName);
+        const coinValue = item?.market || item?.value || 0;
+        if (coinValue > 0) {
+          acc.totalRatio += coinValue / tokenValue;
+          acc.count += 1;
+        }
+        return acc;
+      },
+      { totalRatio: 0, count: 0 },
+    );
+
+    let avg = count > 0 ? totalRatio / count : 1;
+    return avg > 0 ? avg : 1;
+  })();
+
+  const setOrMergeCustomDankItem = (itemName, patch) => {
+    const existingKey = Array.from(byName.keys()).find(
+      (key) => key.toLowerCase() === itemName.toLowerCase(),
+    );
+    const targetKey = existingKey || itemName;
+    const existing = byName.get(targetKey) || {
+      name: itemName,
+      market: 0,
+      value: 0,
+      imageURL: null,
+      rawEmoji: null,
+      customEmojiURL: null,
+      fishing: 0,
+    };
+
+    byName.set(targetKey, {
+      ...existing,
+      ...patch,
+      name: existing.name || itemName,
+    });
+  };
+
+  setOrMergeCustomDankItem("Fish Tokens", {
+    market: Math.ceil(avgFishTokenPerUnit),
+    value: 1,
+    imageURL: DANK_CUSTOM_ITEM_IMAGES["Fish Tokens"],
+    fishing: 1,
+  });
+
+  const fishingTokenMap = {
+    harpoon: 38,
+    "fishing bow": 64,
+    net: 49,
+    "fishing rod": 11,
+    "deadly bait": 282,
+    "golden bait": 27,
+    "lucky bait": 90,
+    "xp bait": 113,
+    "timely bait": 45,
+    // NOT THERE IN SHOP (PERSONAL OPINION)
+    dynamite: 150,
+    "magnet fishing rope": 200,
+    "eyeball bait": 400,
+    "farmer bait": 150,
+    "ghastly bait": 100,
+    "gift bait": 500,
+    "jerky bait": 500,
+  };
+
+  const fishBaits = Array.isArray(fishPayload?.data?.baits?.items)
+    ? fishPayload.data.baits.items
+    : [];
+  const fishTools = Array.isArray(fishPayload?.data?.tools?.items)
+    ? fishPayload.data.tools.items
+    : [];
+
+  for (const fishItem of [...fishBaits, ...fishTools]) {
+    const itemName = String(fishItem?.name || "").trim();
+    if (!itemName) continue;
+
+    const tokenCount =
+      fishingTokenMap[itemName.toLowerCase()] == null
+        ? 100
+        : fishingTokenMap[itemName.toLowerCase()];
+
+    setOrMergeCustomDankItem(itemName, {
+      market: Math.ceil(tokenCount * avgFishTokenPerUnit),
+      value: 1,
+      imageURL: String(fishItem?.imageURL || "").trim() || null,
+      fishing: 1,
+    });
+  }
+
+  setOrMergeCustomDankItem("Skin Fragments", {
+    value: 10000,
+    imageURL: DANK_CUSTOM_ITEM_IMAGES["Skin Fragments"],
+  });
+  setOrMergeCustomDankItem("DMC", {
+    value: 1,
+    imageURL: DANK_CUSTOM_ITEM_IMAGES.DMC,
+  });
+
   const upsertDank = sqlite.prepare(`
-    INSERT INTO dank_items (name, market, value, application_emoji)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO dank_items (name, market, value, application_emoji, fishing)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       market = excluded.market,
       value = excluded.value,
-      application_emoji = COALESCE(excluded.application_emoji, dank_items.application_emoji)
+      application_emoji = COALESCE(excluded.application_emoji, dank_items.application_emoji),
+      fishing = excluded.fishing
   `);
 
   let createdEmojiCount = 0;
@@ -329,7 +456,7 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
     const markdown = emojiMarkdown(emoji) || item.rawEmoji || null;
     if (markdown) indexedEmojiCount += 1;
 
-    upsertDank.run(item.name, item.market, item.value, markdown);
+    upsertDank.run(item.name, item.market, item.value, markdown, item.fishing);
   }
 
   console.log(
