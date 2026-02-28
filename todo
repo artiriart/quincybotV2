@@ -1,18 +1,13 @@
 - copy quincybot cogs to V2
-- make user cache less aggressive, or cache in DB (id -> username) myself
-
-## Code functions which arent extract X message
-
-dank:
-- slash commands not registering
-- multi description should be empty, it will be added by dev with command (add that later)
 
 - 7w7:
-  - Junk drops autodelete setter (per server) + map out emoji -> Rarity (or emoji as it is rn)
   - presets viewer with pagnation and V2 components
+  - ticket refill notifier
+  - raidlist
 - anigame:
   - clan/fshop reminder panel (to edit remind cards)
-  -
+  - bulksell operation
+  - raidlist
 
 - karuta:
   - drop recognition
@@ -29,15 +24,16 @@ dank:
   - DMuser function
   - user input numbers parser (for number user inputs)
   - custom reminder command
+  - reminder ending sending
+  - advanced dice command
+  - "Quincybot V2!!! better ig..."
+  - curate Help command
+  - curate readme.md what bot does
 
 - dankmemer:
-  - Levelling formula: 0.0000117058 x^2 + 0.0142744 x + 92.6934
-  - harmony between multi XP & level calculator
-  - store exact multi values in db so can use /multipliers xp user multis (user doesnt have to manually add)
-  - coins / luck sources and also xp can be indexed via /dev (mostly for self curated description)
-  - omega / prestige calculator
-  - Nuke stat tracker + Component V2
+  - Nuke stat viewer
+  - weekly bundle box reminder
+  - itemcalc
+  - randomevents rewards tracking (for spreadsheet what all rewards are) & viewer
 
-## All bots:
 
-- settings to toggle and filter by user
