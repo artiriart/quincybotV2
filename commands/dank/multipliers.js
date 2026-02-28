@@ -919,10 +919,11 @@ function ceilTo2(value) {
   return Math.ceil(Number(value || 0) * 100) / 100;
 }
 
-function buildOmegaPrestigePayload(calcType, amount) {
+function buildOmegaPrestigePayload(calcType, amount, ownerUserId = null) {
   const type = String(calcType || "").toLowerCase();
   const n = Math.max(1, Math.trunc(Number(amount || 1)));
   const premiumEmoji = global.db.getFeatherEmojiMarkdown("dollar-sign") || "$";
+  const deleteCustomId = `utility:delete:${ownerUserId || "null"}`;
 
   if (type === "prestige") {
     const coinsNormal = 28_500_000 * n;
@@ -954,10 +955,9 @@ function buildOmegaPrestigePayload(calcType, amount) {
           )
           .setButtonAccessory(
             new ButtonBuilder()
-              .setCustomId("dankmulti:noop:deletexp")
+              .setCustomId(deleteCustomId)
               .setStyle(ButtonStyle.Danger)
-              .setLabel("🚮")
-              .setDisabled(true),
+              .setLabel("🚮"),
           ),
       );
 
@@ -996,10 +996,9 @@ function buildOmegaPrestigePayload(calcType, amount) {
         )
         .setButtonAccessory(
           new ButtonBuilder()
-            .setCustomId("dankmulti:noop:deletexp")
+            .setCustomId(deleteCustomId)
             .setStyle(ButtonStyle.Danger)
-            .setLabel("🚮")
-            .setDisabled(true),
+            .setLabel("🚮"),
         ),
     );
 
@@ -1060,7 +1059,9 @@ async function runDankMultiplierCalculate(interaction, type) {
 async function runDankOmegaPrestigeCalculate(interaction) {
   const type = interaction.options.getString("type", true);
   const number = interaction.options.getNumber("number", true);
-  await interaction.reply(buildOmegaPrestigePayload(type, number));
+  await interaction.reply(
+    buildOmegaPrestigePayload(type, number, interaction.user?.id || null),
+  );
 }
 
 function buildDefaultLevelState(userId, sourceType = "xp") {
