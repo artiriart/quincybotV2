@@ -7,6 +7,7 @@ const {
 } = require("discord.js");
 const { createV2Message } = require("../utils/componentsV2");
 const { MessageFlags } = require("discord.js-selfbot-v13");
+const { hidden } = require("colors");
 // todo: add to /settings that you can toggle then it uses the currently unused user_ids to check if user disabled the setting or not
 
 const anigame_emoji_map = {
@@ -15,6 +16,19 @@ const anigame_emoji_map = {
   "<:rare:1068421016893800469>": "Rare",
   "<:super:1068421019645247550><:rare:1068421018374377535>": "Super Rare",
   "<a:ultra:1068416715890892861><a:rare:1068416713592414268>": "Ultra Rare",
+};
+
+const sws_emoji_map = {
+  common: "Common",
+  epic: "Epic",
+  mythical: "Mythical",
+  legendary: "Legendary",
+  special: "Special",
+  hidden: "Hidden",
+  queen: "Queen",
+  goddess: "Goddess",
+  void: "Void",
+  patreon: "Patreon",
 };
 
 const dank_adventure_ticket_map = {
@@ -53,18 +67,14 @@ async function handleMessage(message, oldMessage = false) {
     case global.botIds.sws: {
       // todo: raid tickets refill reminder
       // todo: preset saver / raid guide start parser
-      // todo: equipment ID parser
-      // todo: cd skill tracker
-      // todo: market & item tracker
       if (
         message?.embeds[0]?.title?.includes("with your partner") ||
         message?.embeds[0]?.title?.includes("hanging out with")
       ) {
         const cd_buff = Number(global.db.getState("swsCdPerk")) || 1;
         const total_cd = 300 * cd_buff;
-        const partner = message?.embeds[0]?.title?.includes(
-          "with your partner",
-        );
+        const partner =
+          message?.embeds[0]?.title?.includes("with your partner");
         const refMsg = await message.channel.messages.fetch(
           message.reference.messageId,
         );
@@ -139,20 +149,78 @@ async function handleMessage(message, oldMessage = false) {
         message.embeds[0].title?.includes("waifu appeared!") &&
         !oldMessage
       ) {
-        const embed_color = message.embeds[0].color;
+        const rarity = sws_emoji_map[message.embeds[0].title.split(":")[1]];
         const autodelete = global.db.safeQuery(
-          `SELECT hex_color FROM sws_autodelete WHERE hex_color = ? AND guild_id = ? LIMIT 1`,
-          [embed_color, message.guild.id],
-        )?.[0]?.hex_color;
+          `SELECT rarity FROM sws_autodelete WHERE rarity = ? AND guild_id = ? LIMIT 1`,
+          [rarity, message.guild.id],
+        )?.[0]?.rarity;
 
         if (autodelete) {
           await message.delete().catch(() => {});
-          await message.channel.send(
-            createV2Message(
-              `Deleted **${message?.embeds[0]?.author?.name || "Waifu"}** drop, since *Autodelete* was enabled!\n` +
-                `-# Use \`/settings\` -> 7w7 -> Dropdown to edit`,
-            ),
+          const container = new ContainerBuilder().addSectionComponents(
+            new SectionBuilder()
+              .addTextDisplayComponents((td) =>
+                td.setContent(
+                  `Deleted **${message?.embeds[0]?.author?.name || "Waifu"}** drop, since *Autodelete* was enabled!\n` +
+                    `-# Use \`/settings\` -> 7w7 -> Dropdown to edit`,
+                ),
+              )
+              .setButtonAccessory(
+                new ButtonBuilder()
+                  .setCustomId(`utility:delete:null`) // null = no owner
+                  .setEmoji("🗑️")
+                  .setStyle(ButtonStyle.Secondary),
+              ),
           );
+
+          await message.channel.send({
+            components: [container],
+            flags: MessageFlags.isComponentV2,
+          });
+        }
+      } else if (message?.embeds[0]?.author?.name?.includes("\'s perks")) {
+        const user_id =
+          message.components[0].components[0].customId.split(";=;")[1];
+        const cd_field = message.embeds[0].fields.find((f) =>
+          f.name.includes("interact feature cooldown"),
+        );
+        const cd_time = Number(
+          cd_field.name.split("|")[-1].split("interact")[0].trim().slice(1),
+        );
+        global.db.upsertState("swsCdPerk", cd_time, user_id);
+      } else if (message?.embeds[0]?.author?.name?.includes("\'s inventory")) {
+        for (let item of message?.embeds[0]?.description.split("\n")) {
+          const item_id = item.split("\`")[1].trim().parseInt();
+          const item_name = item.split("-")[-1].trim();
+          const emoji_id = item.split(":")[-1].split(">")[0].trim();
+          global.db.safeQuery(
+            `INSERT INTO sws_items (id, name, emoji_id) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET emoji_id = ?, id = ?`,
+            [item_id, item_name, emoji_id, emoji_id, item_id],
+          );
+        }
+      } else if (
+        message?.embeds[0]?.description?.includes("# Bazaar >") &&
+        !message?.embeds[0]?.description?.split("\n")[0].includes("Waifus")
+      ) {
+        for (let offer of message?.embeds[0]?.description
+          .split("\n")
+          ?.filter((o) => o.startsWith("-"))) {
+          const item_name = offer.split("**")[1].trim();
+          const item_market = offer.split("||")[1].trim();
+          const emoji_id = offer?.includes(">")
+            ? offer.split(":")[-1].split(">")[0].trim()
+            : null;
+          if (emoji_id) {
+            global.db.safeQuery(
+              `INSERT INTO sws_items (name, market, emoji_id) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET market = ?, emoji_id = ?`,
+              [item_name, item_market, emoji_id, item_market, emoji_id],
+            );
+          } else {
+            global.db.safeQuery(
+              `INSERT INTO sws_items (name, market) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET market = ?`,
+              [item_name, item_market, item_market],
+            );
+          }
         }
       }
     }
@@ -223,9 +291,8 @@ async function handleMessage(message, oldMessage = false) {
         ) ||
         message?.embeds[0]?.description?.includes("three o'clock in the")
       ) {
-        const user_id = message.components[0].components[0].customId.split(
-          ":",
-        )[1];
+        const user_id =
+          message.components[0].components[0].customId.split(":")[1];
         const refMsg = await message.channel.messages
           .fetch(message.reference.messageId)
           .catch(() => {});
@@ -235,8 +302,9 @@ async function handleMessage(message, oldMessage = false) {
         }
       } else if (message?.embeds[0]?.author?.name === "Adventure Summary") {
         const user = resolveDankUser(message);
-        const adv = message?.embeds[0]?.fields.find((f) => f.name === "Name")
-          .value;
+        const adv = message?.embeds[0]?.fields.find(
+          (f) => f.name === "Name",
+        ).value;
 
         for (let reward of message?.embeds[0]?.fields
           .find((f) => f.name === "Rewards")
@@ -347,7 +415,8 @@ async function handleMessage(message, oldMessage = false) {
         }
       } else if (
         message?.components?.[-1]?.components?.some(
-          (c) => c?.type === 10 && c?.content?.includes("You caught something!"),
+          (c) =>
+            c?.type === 10 && c?.content?.includes("You caught something!"),
         )
       ) {
         const user = resolveDankUser(message);
@@ -355,7 +424,8 @@ async function handleMessage(message, oldMessage = false) {
 
         const fishing_item = message?.components?.[-1]?.components
           ?.find(
-            (c) => c?.type === 10 && c?.content?.includes("You caught something!"),
+            (c) =>
+              c?.type === 10 && c?.content?.includes("You caught something!"),
           )
           ?.content?.split("\n")
           [-1]?.split("- ")[1]
@@ -431,7 +501,9 @@ async function handleMessage(message, oldMessage = false) {
         );
 
         for (const levelComponent of levelComponents) {
-          const level = parseInt(levelComponent?.content?.match(/Level (\d+)/)[1]);
+          const level = parseInt(
+            levelComponent?.content?.match(/Level (\d+)/)[1],
+          );
           const rewards = levelComponent?.content
             ?.split("\n")
             .filter((l) => !l.startsWith("<:Reply:"));

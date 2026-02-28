@@ -1,8 +1,5 @@
-- calculator uses latex https://editor.codecogs.com/?latex=3%5E%7B4%5E5%7D%20%2B%20%5Cfrac%7B1%7D%7B2%7D#0
 - copy quincybot cogs to V2
 - make user cache less aggressive, or cache in DB (id -> username) myself
-
-- IM USING SQLITE NOT MYSQL; CHANGE ALL TABLES AND QUERIES
 
 ## Code functions which arent extract X message
 
@@ -36,11 +33,6 @@
   - coins / luck sources and also xp can be indexed via /dev (mostly for self curated description)
   - omega / prestige calculator
   - Nuke stat tracker + Component V2
-
-- calculator:
-  - support almost any math equation
-  - LATEX support via mediagallery component & https://editor.codecogs.com/?latex=3%5E%7B4%5E5%7D%20%2B%20%5Cfrac%7B1%7D%7B2%7D#0
-    - Either create own converter e.g. \times -> x or find npm
 
 ## All bots:
 

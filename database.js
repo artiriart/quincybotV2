@@ -162,8 +162,9 @@ const schema = {
     name: "TEXT PRIMARY KEY",
     id: "INTEGER DEFAULT 1",
     market: "TEXT DEFAULT 0",
-    url: "TEXT DEFAULT NULL",
-    description: "TEXT DEFAULT NULL",
+    emoji_id: "TEXT DEFAULT NULL",
+    description: "TEXT DEFAULT 'None added yet'",
+    _constraint: "PRIMARY KEY (name)",
   },
   sws_presets: {
     user_id: "TEXT NOT NULL",
@@ -174,8 +175,8 @@ const schema = {
   },
   sws_autodelete: {
     guild_id: "TEXT NOT NULL",
-    hex_color: "TEXT NOT NULL",
-    _constraint: "PRIMARY KEY (guild_id, hex_color)",
+    rarity: "TEXT NOT NULL",
+    _constraint: "PRIMARY KEY (guild_id, rarity)",
   },
   user_settings_toggles: {
     user_id: "TEXT NOT NULL",

@@ -24,6 +24,11 @@ module.exports = {
             .setDescription(
               "Panel to edit dankmemer random events list (e.g. for changing lb order)",
             ),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("7w7-items")
+            .setDescription("Panel to edit 7w7 item descriptions"),
         ),
     ),
 };
