@@ -3,6 +3,10 @@
 
 ## Code functions which arent extract X message
 
+dank:
+- slash commands not registering
+- multi description should be empty, it will be added by dev with command (add that later)
+
 - 7w7:
   - Junk drops autodelete setter (per server) + map out emoji -> Rarity (or emoji as it is rn)
   - presets viewer with pagnation and V2 components

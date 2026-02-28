@@ -16,6 +16,7 @@ const {
   parseRewardEntry,
   resolveDankUser,
   resolveReferencedAuthor,
+  indexDankMultiplierSnapshot,
   upsertCardClaim,
   upsertDankStat,
 } = require("./handleMessageHelpers");
@@ -61,9 +62,81 @@ function shouldTrackDankStats(getUserToggle, userId) {
 function extractDankLevelRewardBlocks(message) {
   return (
     message?.components?.[0]?.components
-      ?.filter((c) => c?.type === 10 && /Level\s+\d+/.test(String(c?.content || "")))
+      ?.filter(
+        (c) => c?.type === 10 && /Level\s+\d[\d,]*/.test(String(c?.content || "")),
+      )
       ?.map((c) => String(c.content)) || []
   );
+}
+
+function parseDankLevelRewardLine(rawLine) {
+  let reward = String(rawLine || "")
+    .replace(/^[-*]\s*/, "")
+    .trim();
+  if (!reward || reward.includes("Multiplier")) return null;
+  if (reward.includes("Skin")) return null;
+  if (/\bpet\b/i.test(reward)) return null;
+
+  // Remove leading reply-thread marker emojis used by Dank component messages.
+  reward = reward
+    .replace(/^(<a?:[a-zA-Z0-9_]+:\d+>\s*)+/, "")
+    .trim();
+  if (!reward) return null;
+
+  if (reward.includes("⏣")) {
+    const amount = Number.parseInt(
+      reward.split("⏣")[1]?.replaceAll(",", "").trim(),
+      10,
+    );
+    if (!Number.isFinite(amount)) return null;
+    return { amount, item: "DMC", title: false };
+  }
+
+  if (reward.includes("Title")) {
+    const item = reward.split("'")[1]?.trim();
+    if (!item) return null;
+    return { amount: 1, item, title: true };
+  }
+
+  const amountMatch = reward.match(/^(\d[\d,]*)\s+/);
+  const amount = Number.parseInt(
+    amountMatch?.[1]?.replaceAll(",", "") || "",
+    10,
+  );
+  if (Number.isFinite(amount)) {
+    reward = reward.replace(/^(\d[\d,]*)\s+/, "").trim();
+    reward = reward.replace(/^<a?:[a-zA-Z0-9_]+:\d+>\s*/, "").trim();
+
+    let item = reward;
+    if (!item) {
+      const emojiId = String(rawLine || "").match(/<a?:[a-zA-Z0-9_]+:(\d+)>/)?.[1];
+      if (emojiId) {
+        item =
+          global.db.safeQuery(
+            `
+            SELECT name
+            FROM dank_items
+            WHERE application_emoji LIKE ?
+            LIMIT 1
+            `,
+            [`%:${emojiId}>`],
+          )?.[0]?.name || "";
+      }
+    }
+
+    if (!item) return null;
+    return { amount, item, title: false };
+  }
+
+  // Handle entries without explicit numeric amount, e.g. "<:Rock:...> Rock Pet".
+  const noAmountItem = reward
+    .replace(/^<a?:[a-zA-Z0-9_]+:\d+>\s*/, "")
+    .trim();
+  if (noAmountItem) {
+    return { amount: 1, item: noAmountItem, title: false };
+  }
+
+  return null;
 }
 
 async function handleSwsMessage(message, oldMessage, settings) {
@@ -324,6 +397,28 @@ async function handleAnigameMessage(message, oldMessage, settings) {
 
 async function handleDankMessage(message, settings) {
   if (
+    message?.embeds?.[0]?.title === "Your XP Multipliers" ||
+    message?.embeds?.[0]?.title === "Your Coin Multipliers" ||
+    message?.embeds?.[0]?.title === "Your Luck Multipliers"
+  ) {
+    const user = await resolveDankUser(message);
+    if (!user || !shouldTrackDankStats(settings.getUserToggle, user.id)) return;
+
+    const title = String(message.embeds[0].title || "");
+    const description = String(message.embeds[0].description || "");
+    if (!description) return;
+
+    if (title === "Your XP Multipliers") {
+      indexDankMultiplierSnapshot(user.id, "xp", description);
+    } else if (title === "Your Coin Multipliers") {
+      indexDankMultiplierSnapshot(user.id, "coins", description);
+    } else if (title === "Your Luck Multipliers") {
+      indexDankMultiplierSnapshot(user.id, "luck", description);
+    }
+    return;
+  }
+
+  if (
     message?.embeds?.[0]?.description?.includes("your lactose intolerance is acting up") ||
     message?.embeds?.[0]?.description?.includes("three o'clock in the")
   ) {
@@ -526,47 +621,24 @@ async function handleDankMessage(message, settings) {
     const levelBlocks = extractDankLevelRewardBlocks(message);
 
     for (const block of levelBlocks) {
-      const levelMatch = block.match(/Level (\d+)/);
-      const level = Number.parseInt(levelMatch?.[1], 10);
+      const levelMatch = block.match(/Level (\d[\d,]*)/);
+      const level = Number.parseInt(
+        String(levelMatch?.[1] || "").replaceAll(",", ""),
+        10,
+      );
       if (!Number.isFinite(level)) continue;
 
       const rewards = String(block)
         ?.split("\n")
-        .filter((l) => l && !l.startsWith("<:Reply:") && !/Level\s+\d+/.test(l));
+        .filter((l) => l && !/Level\s+\d[\d,]*/.test(l));
 
-      for (let reward of rewards || []) {
-        reward = String(reward)
-          .replace(/^[-*]\s*/, "")
-          .trim();
-
-        if (reward.includes(">")) {
-          const maybeAfterEmoji = reward.split(">")[1]?.trim();
-          if (maybeAfterEmoji) reward = maybeAfterEmoji;
-        }
-
-        if (!reward || reward.includes("Multiplier")) continue;
-
-        let amount = null;
-        let item = null;
-        let title = false;
-
-        if (reward.includes("⏣")) {
-          amount = Number.parseInt(reward.split("⏣")[1]?.replaceAll(",", "").trim(), 10);
-          item = "DMC";
-        } else if (reward.includes("Title")) {
-          title = true;
-          amount = 1;
-          item = reward.split("'")[1]?.trim();
-        } else {
-          amount = Number.parseInt(reward.split("<")[0]?.trim(), 10);
-          item = reward.split(">").at(-1)?.trim();
-        }
-
-        if (!item || !Number.isFinite(amount)) continue;
+      for (const rewardLine of rewards || []) {
+        const parsed = parseDankLevelRewardLine(rewardLine);
+        if (!parsed) continue;
 
         global.db.safeQuery(
           `INSERT OR IGNORE INTO dank_level_rewards (level, name, amount, title) VALUES (?, ?, ?, ?)`,
-          [level, item, amount, title ? 1 : 0],
+          [level, parsed.item, parsed.amount, parsed.title ? 1 : 0],
         );
       }
     }

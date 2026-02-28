@@ -26,6 +26,7 @@ const schema = {
   dank_multipliers: {
     name: "TEXT NOT NULL",
     amount: "REAL DEFAULT 1",
+    emoji: "TEXT DEFAULT NULL",
     description: "TEXT DEFAULT NULL",
     type: "TEXT NOT NULL",
     _constraint: "PRIMARY KEY (name, amount, type)",
@@ -40,12 +41,7 @@ const schema = {
     name: "TEXT DEFAULT NULL",
     amount: "INTEGER DEFAULT 1",
     title: "BOOLEAN DEFAULT 0",
-    _constraint: "PRIMARY KEY (level)",
-  },
-  dank_level_xp: {
-    level: "INTEGER NOT NULL",
-    xp: "INTEGER DEFAULT 0",
-    _constraint: "PRIMARY KEY (level)",
+    _constraint: "PRIMARY KEY (level, name, title)",
   },
   // ===== 7W7 BOT DATA =====
   sws_faq: {

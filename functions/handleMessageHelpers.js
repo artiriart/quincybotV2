@@ -147,6 +147,287 @@ function upsertCardClaim(userId, botName, rarity, amount = 1) {
   );
 }
 
+function stripLeadingCustomEmoji(text) {
+  let value = String(text || "").trim();
+  while (value.startsWith("<")) {
+    const end = value.indexOf(">");
+    if (end === -1) break;
+    value = value.slice(end + 1).trim();
+  }
+  return value;
+}
+
+function stripExpirySuffix(text) {
+  const value = String(text || "");
+  const marker = " (expires ";
+  const idx = value.toLowerCase().indexOf(marker);
+  if (idx === -1) return value.trim();
+  return value.slice(0, idx).trim();
+}
+
+function stripMarkdownLink(text) {
+  const value = String(text || "").trim();
+  if (!value.startsWith("[")) return value;
+  const close = value.indexOf("]");
+  const openLink = value.indexOf("(", close + 1);
+  const closeLink = value.indexOf(")", openLink + 1);
+  if (close > 1 && openLink === close + 1 && closeLink > openLink) {
+    return value.slice(1, close).trim();
+  }
+  return value;
+}
+
+function parseMultiplierAmount(token, type) {
+  const compact = String(token || "").replaceAll(" ", "").trim();
+  if (!compact) return null;
+
+  if (type === "xp") {
+    const marker = compact.toLowerCase().indexOf("x");
+    if (marker <= 0) return null;
+    const raw = compact.slice(0, marker).replaceAll("+", "");
+    const amount = Number(raw);
+    return Number.isFinite(amount) && amount > 0 ? amount : null;
+  }
+
+  const marker = compact.indexOf("%");
+  if (marker <= 0) return null;
+  const raw = compact.slice(0, marker).replaceAll("+", "");
+  const amount = Number(raw);
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function normalizeMultiplierName(rawName) {
+  let name = String(rawName || "").trim();
+  if (!name) return "";
+  name = stripLeadingCustomEmoji(name);
+  name = stripMarkdownLink(name);
+  name = stripExpirySuffix(name);
+  return name.trim();
+}
+
+function parseMultiplierLines(description, type) {
+  const lines = String(description || "").split("\n");
+  const parsed = [];
+
+  for (const line of lines) {
+    const trimmed = String(line || "").trim();
+    if (!trimmed.startsWith("`")) continue;
+
+    const closeTick = trimmed.indexOf("`", 1);
+    if (closeTick <= 1) continue;
+
+    const token = trimmed.slice(1, closeTick).trim();
+    const amount = parseMultiplierAmount(token, type);
+    if (amount == null) continue;
+
+    const rawName = trimmed.slice(closeTick + 1).trim();
+    const name = normalizeMultiplierName(rawName);
+    if (!name) continue;
+
+    parsed.push({
+      name,
+      amount,
+      description: "",
+    });
+  }
+
+  return parsed;
+}
+
+function normalizePermanentMultiplierKey(name) {
+  const lower = String(name || "").toLowerCase();
+  if (lower.includes("omega")) return "omega";
+  if (lower.includes("prestige")) return "prestige";
+  return null;
+}
+
+function dedupePermanentMultiplierEntries(entries) {
+  const out = [];
+  let omegaIndex = -1;
+  let prestigeIndex = -1;
+  let premiumIndex = -1;
+
+  for (const entry of entries) {
+    const key = normalizePermanentMultiplierKey(entry?.name);
+    if (key === "omega") {
+      if (omegaIndex !== -1) {
+        out[omegaIndex] = entry;
+      } else {
+        omegaIndex = out.length;
+        out.push(entry);
+      }
+      continue;
+    }
+    if (key === "prestige") {
+      if (prestigeIndex !== -1) {
+        out[prestigeIndex] = entry;
+      } else {
+        prestigeIndex = out.length;
+        out.push(entry);
+      }
+      continue;
+    }
+    if (/premium/i.test(String(entry?.name || ""))) {
+      if (premiumIndex !== -1) {
+        const prev = Number(out[premiumIndex]?.amount || 0);
+        const next = Number(entry?.amount || 0);
+        out[premiumIndex] = next >= prev ? entry : out[premiumIndex];
+      } else {
+        premiumIndex = out.length;
+        out.push(entry);
+      }
+      continue;
+    }
+    out.push(entry);
+  }
+
+  return out;
+}
+
+function shouldIgnoreInMaster(type, name) {
+  const lower = String(name || "").toLowerCase();
+  if (lower.includes("premium")) return true;
+  if (type === "xp") {
+    return lower.includes("omega") || lower.includes("prestige");
+  }
+  if (type === "coins") {
+    if (lower.includes("badge")) return true;
+    if (/\d+\s*d\s*streak/i.test(lower)) return true;
+  }
+  return false;
+}
+
+function resolvePremiumTierFromAmount(type, amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return null;
+
+  if (type === "xp") {
+    if (n >= 1.5) return "meme_mogul";
+    if (n >= 1.25) return "meme_maestro";
+    if (n >= 1.2) return "platinum_memer";
+    if (n >= 1.15) return "elite_memer";
+    if (n >= 1.05) return "meme_enthusiast";
+  }
+
+  if (type === "coins") {
+    if (n >= 300) return "meme_mogul";
+    if (n >= 250) return "meme_maestro";
+    if (n >= 200) return "platinum_memer";
+    if (n >= 100) return "elite_memer";
+    if (n >= 50) return "meme_enthusiast";
+  }
+
+  if (type === "luck" && n >= 5) {
+    return "credit_card";
+  }
+
+  return null;
+}
+
+function premiumTierRank(tier) {
+  const order = {
+    none: 0,
+    credit_card: 1,
+    meme_enthusiast: 2,
+    elite_memer: 3,
+    platinum_memer: 4,
+    meme_maestro: 5,
+    meme_mogul: 6,
+  };
+  return order[String(tier || "none")] || 0;
+}
+
+function indexDankMultiplierSnapshot(userId, type, description) {
+  if (!userId || !type || !description) return;
+
+  const normalizedType = String(type).toLowerCase();
+  if (!["xp", "coins", "luck"].includes(normalizedType)) return;
+
+  const parsed = dedupePermanentMultiplierEntries(
+    parseMultiplierLines(description, normalizedType),
+  );
+  if (!parsed.length) return;
+
+  const premiumEntry = parsed.find((entry) =>
+    /premium/i.test(String(entry?.name || "")),
+  );
+  const inferredTier = premiumEntry
+    ? resolvePremiumTierFromAmount(normalizedType, premiumEntry.amount)
+    : null;
+  if (inferredTier) {
+    const currentTier = String(
+      global.db.getState("dank_multiplier_premium_global", userId) || "none",
+    );
+    const nextTier =
+      premiumTierRank(inferredTier) >= premiumTierRank(currentTier)
+        ? inferredTier
+        : currentTier;
+    global.db.upsertState(
+      "dank_multiplier_premium_global",
+      nextTier,
+      userId,
+      true,
+    );
+  }
+
+  global.db.upsertState(
+    `dank_tracked_multipliers_${normalizedType}`,
+    JSON.stringify(parsed),
+    userId,
+    true,
+  );
+
+  global.db.safeQuery(
+    `DELETE FROM dank_selected_multipliers WHERE user_id = ? AND type = ?`,
+    [userId, normalizedType],
+  );
+
+  const uniqueNames = [...new Set(parsed.map((entry) => entry.name))];
+  for (const name of uniqueNames) {
+    global.db.safeQuery(
+      `INSERT INTO dank_selected_multipliers (user_id, name, type) VALUES (?, ?, ?) ON CONFLICT(user_id, name, type) DO NOTHING`,
+      [userId, name, normalizedType],
+    );
+  }
+
+  for (const entry of parsed) {
+    if (shouldIgnoreInMaster(normalizedType, entry.name)) continue;
+
+    const isShreddedCheeseXp =
+      normalizedType === "xp" &&
+      String(entry.name || "").toLowerCase() === "shredded cheese";
+    const amountToStore = isShreddedCheeseXp ? 1.5 : entry.amount;
+
+    if (isShreddedCheeseXp) {
+      global.db.safeQuery(
+        `DELETE FROM dank_multipliers WHERE type = 'xp' AND LOWER(name) = LOWER(?) AND amount <> 1.5`,
+        [entry.name],
+      );
+    }
+
+    if (/premium/i.test(String(entry?.name || ""))) {
+      global.db.safeQuery(
+        `DELETE FROM dank_multipliers WHERE type = ? AND LOWER(name) LIKE '%premium%'`,
+        [normalizedType],
+      );
+    }
+
+    global.db.safeQuery(
+      `
+      INSERT INTO dank_multipliers (name, amount, description, type)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(name, amount, type) DO UPDATE SET
+        description = CASE
+          WHEN excluded.description IS NOT NULL AND excluded.description <> ''
+            THEN excluded.description
+          ELSE dank_multipliers.description
+        END
+      `,
+      [entry.name, amountToStore, entry.description, normalizedType],
+    );
+  }
+}
+
 module.exports = {
   createSettingsReader,
   extractMentionedUserId,
@@ -158,4 +439,5 @@ module.exports = {
   resolveReferencedAuthor,
   upsertCardClaim,
   upsertDankStat,
+  indexDankMultiplierSnapshot,
 };

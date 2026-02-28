@@ -709,6 +709,7 @@ async function syncAnigameCards(sqlite) {
   console.log(`Anigame card sync complete: ${count} rows upserted.`);
 }
 
+
 async function runStartupSync() {
   if (startupSyncPromise) {
     return startupSyncPromise;

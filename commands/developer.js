@@ -38,6 +38,17 @@ const DANK_OPTION_EDIT_DESCRIPTION_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankoptio
 const DANK_OPTION_ITEM_INPUT_ID = "option_item_name";
 const DANK_OPTION_DESCRIPTION_INPUT_ID = "option_description";
 
+// Dank multipliers editor
+const DEV_DANK_MULTIPLIER_VIEW_STATE_TYPE = "dev_dank_multiplier_view";
+const DANK_MULTIPLIER_TYPE_SELECT_PREFIX = `${CUSTOM_ID_PREFIX}:dankmultis:type`;
+const DANK_MULTIPLIER_NAME_SELECT_PREFIX = `${CUSTOM_ID_PREFIX}:dankmultis:name`;
+const DANK_MULTIPLIER_EDIT_EMOJI_BUTTON_PREFIX = `${CUSTOM_ID_PREFIX}:dankmultis:edit_emoji`;
+const DANK_MULTIPLIER_EDIT_DESCRIPTION_BUTTON_PREFIX = `${CUSTOM_ID_PREFIX}:dankmultis:edit_description`;
+const DANK_MULTIPLIER_EDIT_EMOJI_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankmultis:edit_emoji_modal`;
+const DANK_MULTIPLIER_EDIT_DESCRIPTION_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankmultis:edit_description_modal`;
+const DANK_MULTIPLIER_EMOJI_INPUT_ID = "multi_emoji";
+const DANK_MULTIPLIER_DESCRIPTION_INPUT_ID = "multi_description";
+
 function isDevAllowed(userId) {
   const owners = Array.isArray(global.ownerIds) ? global.ownerIds : [];
   if (!owners.length) return true;
@@ -55,6 +66,25 @@ function saveDankOptionView(token, state) {
 
 function loadDankOptionView(token) {
   const raw = global.db.getState(DEV_DANK_VIEW_STATE_TYPE, token);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveDankMultiplierView(token, state) {
+  global.db.upsertState(
+    DEV_DANK_MULTIPLIER_VIEW_STATE_TYPE,
+    JSON.stringify(state),
+    token,
+    false,
+  );
+}
+
+function loadDankMultiplierView(token) {
+  const raw = global.db.getState(DEV_DANK_MULTIPLIER_VIEW_STATE_TYPE, token);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -450,6 +480,158 @@ function buildDankOptionEditorPayload(viewState) {
   };
 }
 
+function listDankMultiplierTypes() {
+  return ["xp", "coins", "luck"];
+}
+
+function listDankMultipliersByType(type) {
+  return global.db.safeQuery(
+    `
+    SELECT name, MAX(amount) AS amount, MAX(emoji) AS emoji, MIN(description) AS description
+    FROM dank_multipliers
+    WHERE type = ?
+    GROUP BY name
+    ORDER BY LOWER(name) ASC
+    `,
+    [type],
+  );
+}
+
+function getDankMultiplierMeta(type, name) {
+  return (
+    global.db.safeQuery(
+      `
+      SELECT name, MAX(amount) AS amount, MAX(emoji) AS emoji, MIN(description) AS description, type
+      FROM dank_multipliers
+      WHERE type = ? AND LOWER(name) = LOWER(?)
+      GROUP BY name, type
+      LIMIT 1
+      `,
+      [type, name],
+    )?.[0] || null
+  );
+}
+
+function buildDankMultiplierEditorPayload(viewState) {
+  const validTypes = listDankMultiplierTypes();
+  const safeType = validTypes.includes(viewState.type) ? viewState.type : "xp";
+  const multiplierRows = listDankMultipliersByType(safeType);
+
+  if (!multiplierRows.length) {
+    return {
+      content: `No multipliers found for type: ${safeType}`,
+      flags: MessageFlags.Ephemeral,
+      state: {
+        ...viewState,
+        type: safeType,
+        name: null,
+      },
+    };
+  }
+
+  const names = multiplierRows.map((row) => String(row.name));
+  const safeName = names.includes(viewState.name) ? viewState.name : names[0];
+  const selected = multiplierRows.find((row) => String(row.name) === String(safeName));
+  const typeLabel = safeType.toUpperCase();
+  const selectedLabel = `${selected.name} [${selected.amount}]`;
+
+  const typeOptions = validTypes.map((type) => ({
+    label: type.toUpperCase(),
+    value: type,
+    default: type === safeType,
+  }));
+
+  const nameOptions = multiplierRows.slice(0, 25).map((row) => {
+    const option = {
+      label: `${row.name} [${row.amount}]`.slice(0, 100),
+      value: row.name,
+      default: row.name === safeName,
+    };
+    const emoji = parseEmojiValue(row.emoji);
+    if (emoji) option.emoji = emoji;
+    const desc = String(row.description || "").trim();
+    if (desc) option.description = desc.slice(0, 100);
+    return option;
+  });
+
+  const container1 = new ContainerBuilder()
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `## Edit Dank Multipliers\n### Selected: ${typeLabel} / ${selectedLabel}`,
+      ),
+    )
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
+            `### Emoji: ${selected.emoji || "None"}`,
+          ),
+        )
+        .setButtonAccessory(
+          new ButtonBuilder()
+            .setCustomId(`${DANK_MULTIPLIER_EDIT_EMOJI_BUTTON_PREFIX}:${viewState.token}`)
+            .setLabel("Edit Emoji")
+            .setStyle(ButtonStyle.Primary),
+        ),
+    )
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
+            `### Select Menu Description: ${selected.description || "None"}`,
+          ),
+        )
+        .setButtonAccessory(
+          new ButtonBuilder()
+            .setCustomId(`${DANK_MULTIPLIER_EDIT_DESCRIPTION_BUTTON_PREFIX}:${viewState.token}`)
+            .setLabel("Edit Description")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+    );
+
+  const container2 = new ContainerBuilder()
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent("### Select Type"),
+    )
+    .addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`${DANK_MULTIPLIER_TYPE_SELECT_PREFIX}:${viewState.token}`)
+          .setPlaceholder("Select Type")
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(typeOptions),
+      ),
+    )
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent("### Select Multiplier"),
+    )
+    .addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`${DANK_MULTIPLIER_NAME_SELECT_PREFIX}:${viewState.token}`)
+          .setPlaceholder("Select Multiplier")
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(nameOptions),
+      ),
+    );
+
+  return {
+    content: "",
+    components: [container1, container2],
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+    state: {
+      ...viewState,
+      type: safeType,
+      name: safeName,
+    },
+  };
+}
+
 async function handleDevButton(interaction) {
   if (!isDevAllowed(interaction.user.id)) {
     await interaction.reply({
@@ -598,6 +780,82 @@ async function handleDevButton(interaction) {
       );
 
     await interaction.showModal(modal);
+    return;
+  }
+
+  if (customId.startsWith(`${DANK_MULTIPLIER_EDIT_EMOJI_BUTTON_PREFIX}:`)) {
+    const token = customId.split(":").pop();
+    const state = loadDankMultiplierView(token);
+    if (!state || state.userId !== interaction.user.id) {
+      await interaction.reply({
+        content: "This panel expired. Use `/dev edit multiplier` again.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const selected = getDankMultiplierMeta(state.type, state.name);
+    if (!selected) {
+      await interaction.reply({
+        content: "Selected multiplier no longer exists.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId(`${DANK_MULTIPLIER_EDIT_EMOJI_MODAL_PREFIX}:${token}`)
+      .setTitle(`Emoji: ${state.type} / ${selected.name}`)
+      .addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId(DANK_MULTIPLIER_EMOJI_INPUT_ID)
+            .setLabel("Emoji markdown/unicode (blank to clear)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(selected.emoji || "")),
+        ),
+      );
+
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (customId.startsWith(`${DANK_MULTIPLIER_EDIT_DESCRIPTION_BUTTON_PREFIX}:`)) {
+    const token = customId.split(":").pop();
+    const state = loadDankMultiplierView(token);
+    if (!state || state.userId !== interaction.user.id) {
+      await interaction.reply({
+        content: "This panel expired. Use `/dev edit multiplier` again.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const selected = getDankMultiplierMeta(state.type, state.name);
+    if (!selected) {
+      await interaction.reply({
+        content: "Selected multiplier no longer exists.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId(`${DANK_MULTIPLIER_EDIT_DESCRIPTION_MODAL_PREFIX}:${token}`)
+      .setTitle(`Description: ${state.type} / ${selected.name}`)
+      .addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId(DANK_MULTIPLIER_DESCRIPTION_INPUT_ID)
+            .setLabel("Dropdown Description (blank to clear)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(selected.description || "")),
+        ),
+      );
+
+    await interaction.showModal(modal);
   }
 }
 
@@ -611,37 +869,77 @@ async function handleDevSelect(interaction) {
   }
 
   const customId = String(interaction.customId || "");
-  const token = customId.split(":")[3];
-  if (!token) return;
 
-  const state = loadDankOptionView(token);
-  if (!state || state.userId !== interaction.user.id) {
-    await interaction.reply({
-      content: "This panel expired. Use `/dev edit dank-options` again.",
-      flags: MessageFlags.Ephemeral,
-    });
+  if (
+    customId.startsWith(`${DANK_OPTION_MAIN_SELECT_PREFIX}:`) ||
+    customId.startsWith(`${DANK_OPTION_SUB_SELECT_PREFIX}:`)
+  ) {
+    const token = customId.split(":")[3];
+    if (!token) return;
+
+    const state = loadDankOptionView(token);
+    if (!state || state.userId !== interaction.user.id) {
+      await interaction.reply({
+        content: "This panel expired. Use `/dev edit dank-options` again.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const selected = interaction.values?.[0];
+    if (!selected) return;
+
+    if (customId.startsWith(`${DANK_OPTION_MAIN_SELECT_PREFIX}:`)) {
+      state.main = selected;
+      state.sub = "__all__";
+    } else if (customId.startsWith(`${DANK_OPTION_SUB_SELECT_PREFIX}:`)) {
+      state.sub = selected;
+    }
+
+    const payload = buildDankOptionEditorPayload(state);
+    if (payload?.state) {
+      saveDankOptionView(token, payload.state);
+      delete payload.state;
+    }
+
+    await interaction.update(payload);
     return;
   }
 
-  const selected = interaction.values?.[0];
-  if (!selected) return;
+  if (
+    customId.startsWith(`${DANK_MULTIPLIER_TYPE_SELECT_PREFIX}:`) ||
+    customId.startsWith(`${DANK_MULTIPLIER_NAME_SELECT_PREFIX}:`)
+  ) {
+    const token = customId.split(":")[3];
+    if (!token) return;
 
-  if (customId.startsWith(`${DANK_OPTION_MAIN_SELECT_PREFIX}:`)) {
-    state.main = selected;
-    state.sub = "__all__";
-  } else if (customId.startsWith(`${DANK_OPTION_SUB_SELECT_PREFIX}:`)) {
-    state.sub = selected;
-  } else {
-    return;
+    const state = loadDankMultiplierView(token);
+    if (!state || state.userId !== interaction.user.id) {
+      await interaction.reply({
+        content: "This panel expired. Use `/dev edit multiplier` again.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const selected = interaction.values?.[0];
+    if (!selected) return;
+
+    if (customId.startsWith(`${DANK_MULTIPLIER_TYPE_SELECT_PREFIX}:`)) {
+      state.type = selected;
+      state.name = null;
+    } else if (customId.startsWith(`${DANK_MULTIPLIER_NAME_SELECT_PREFIX}:`)) {
+      state.name = selected;
+    }
+
+    const payload = buildDankMultiplierEditorPayload(state);
+    if (payload?.state) {
+      saveDankMultiplierView(token, payload.state);
+      delete payload.state;
+    }
+
+    await interaction.update(payload);
   }
-
-  const payload = buildDankOptionEditorPayload(state);
-  if (payload?.state) {
-    saveDankOptionView(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.update(payload);
 }
 
 async function handleDevModal(interaction) {
@@ -778,6 +1076,90 @@ async function handleDevModal(interaction) {
     }
 
     await interaction.reply(payload);
+    return;
+  }
+
+  if (customId.startsWith(`${DANK_MULTIPLIER_EDIT_EMOJI_MODAL_PREFIX}:`)) {
+    const token = customId.split(":")[3];
+    const state = loadDankMultiplierView(token);
+    if (!state || state.userId !== interaction.user.id) {
+      await interaction.reply({
+        content: "This panel expired. Use `/dev edit multiplier` again.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const emojiValue = interaction.fields
+      .getTextInputValue(DANK_MULTIPLIER_EMOJI_INPUT_ID)
+      .trim();
+    const selected = getDankMultiplierMeta(state.type, state.name);
+    if (!selected) {
+      await interaction.reply({
+        content: "Selected multiplier no longer exists.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    global.db.safeQuery(
+      `
+      UPDATE dank_multipliers
+      SET emoji = ?
+      WHERE type = ? AND LOWER(name) = LOWER(?)
+      `,
+      [emojiValue || null, state.type, state.name],
+    );
+
+    const payload = buildDankMultiplierEditorPayload(state);
+    if (payload?.state) {
+      saveDankMultiplierView(token, payload.state);
+      delete payload.state;
+    }
+
+    await interaction.reply(payload);
+    return;
+  }
+
+  if (customId.startsWith(`${DANK_MULTIPLIER_EDIT_DESCRIPTION_MODAL_PREFIX}:`)) {
+    const token = customId.split(":")[3];
+    const state = loadDankMultiplierView(token);
+    if (!state || state.userId !== interaction.user.id) {
+      await interaction.reply({
+        content: "This panel expired. Use `/dev edit multiplier` again.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const descriptionValue = interaction.fields
+      .getTextInputValue(DANK_MULTIPLIER_DESCRIPTION_INPUT_ID)
+      .trim();
+    const selected = getDankMultiplierMeta(state.type, state.name);
+    if (!selected) {
+      await interaction.reply({
+        content: "Selected multiplier no longer exists.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    global.db.safeQuery(
+      `
+      UPDATE dank_multipliers
+      SET description = ?
+      WHERE type = ? AND LOWER(name) = LOWER(?)
+      `,
+      [descriptionValue || null, state.type, state.name],
+    );
+
+    const payload = buildDankMultiplierEditorPayload(state);
+    if (payload?.state) {
+      saveDankMultiplierView(token, payload.state);
+      delete payload.state;
+    }
+
+    await interaction.reply(payload);
   }
 }
 
@@ -849,6 +1231,26 @@ module.exports = {
       const payload = buildDankOptionEditorPayload(state);
       if (payload?.state) {
         saveDankOptionView(token, payload.state);
+        delete payload.state;
+      }
+
+      await interaction.reply(payload);
+      return;
+    }
+
+    if (group === "edit" && subcommand === "multiplier") {
+      const token = createViewToken(interaction.user.id);
+      const state = {
+        token,
+        userId: interaction.user.id,
+        type: "xp",
+        name: null,
+      };
+      saveDankMultiplierView(token, state);
+
+      const payload = buildDankMultiplierEditorPayload(state);
+      if (payload?.state) {
+        saveDankMultiplierView(token, payload.state);
         delete payload.state;
       }
 
