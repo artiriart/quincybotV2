@@ -1,8 +1,10 @@
-- copy quincybot cogs to V2
+- make files shorter by moving helper functions or creating dirs
 
 - 7w7:
+  - dump faq
+  - think about dumping raid help (propably not though)
   - presets viewer with pagnation and V2 components
-  - ticket refill notifier
+  - ticket refill notifier + setting on x tickets
   - raidlist
 - anigame:
   - clan/fshop reminder panel (to edit remind cards)
@@ -13,27 +15,34 @@
   - drop recognition
   - visit reminders
   - card recognition
+  - card metadata indexing
+  - per server toggle of drop recog
   - wishlist for card recog via series with script ENV setting: Gemma 1b / Tesseract / off
 
-- lab:
+- lab (low prio):
   - reconstruct whole module to work better
   - Component V2 & better menus & home UI with all features
   - keep older logic in terms of core game logic
 
 - utils:
   - DMuser function
-  - user input numbers parser (for number user inputs)
   - custom reminder command
-  - reminder ending sending
+  - reminder ending handler
   - advanced dice command
   - "Quincybot V2!!! better ig..."
   - curate Help command
-  - curate readme.md what bot does
+  - /repo command
+  - curate readme.md what bot does + i'd love to review and accept pr's
+    - first clean up code though
 
 - dankmemer:
   - Nuke stat viewer
   - weekly bundle box reminder
   - itemcalc
-  - randomevents rewards tracking (for spreadsheet what all rewards are) & viewer
+  - get rid of randomevents reward list table
+  - add support to multipliers in /dank stats
+     - crop to minimal, then if existent create section button to expand menu that shows them
 
-
+- izzi:
+  - raidlist 
+  - crate opening helper / extractor
