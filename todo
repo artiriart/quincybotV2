@@ -1,23 +1,38 @@
 - make files shorter by moving helper functions or creating dirs
+- find ways to make RAM usage lower
 
 - 7w7:
-  - raid help
-  - presets viewer & saver with pagnation and V2 components
-  - (test) ticket refill notifier + setting on x tickets
-  
+    - raid guide via reacts on raid menus
+    - (test) ticket refill notifier + setting on x tickets
+
 - anigame:
-  - bulksell operation
-  - raidlist
-  - (test) cl/f notifs
+    - bulksell operation via reacts on inv
+    - index cards market via aniOS bot, then normalise card values to good values myself
+    - raidlist
+    - (test) cl/f notifs
 
 - karuta:
-  - (test) visit reminders
+    - (test) visit reminders
 
 - lab (low prio):
-  - reconstruct whole module to work better
-  - Component V2 & better menus & home UI with all features
-  - keep older logic in terms of core game logic
+    - reconstruct whole module to work better
+    - Component V2 & better menus & home UI with all features
+    - keep older logic in terms of core game logic
 
 - izzi:
-  - raidlist 
-  - crate opening helper / extractor
+    - raidlist
+    - crate opening helper / extractor
+    - index market via ci
+    - (test) event shard extractor
+
+- dank:
+    - (test) weekly bundle box reminders
+    - (test) multiplier stats
+    - (test) nuke rewards extractor
+
+- utility:
+    - list all reminders
+    - sqlite to mysql translator then env to switch if want
+    - on /multipliers XP if page 1 add "record" reaction, will clean all XP multipliers,
+      then wait for last page (add "done" reaction),
+      then show all missing XP multipliers
