@@ -25,10 +25,10 @@ module.exports = {
     new SlashCommandBuilder()
       .setName("dice")
       .setDescription("Roll a custom dice")
-      .addIntegerOption((option) =>
+      .addStringOption((option) =>
         option
           .setName("range")
-          .setDescription("The range of the dice (default: 1-6)")
+          .setDescription("The range of the dice, e.g. 1-6 or 4-5 (default: 1-6)")
           .setRequired(false),
       )
       .addIntegerOption((option) =>

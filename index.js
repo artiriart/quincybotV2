@@ -37,10 +37,12 @@ const client = Object.assign(
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildMessageReactions,
       GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.DirectMessageReactions,
       GatewayIntentBits.MessageContent,
     ],
-    partials: [Partials.Channel],
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
     makeCache: Options.cacheWithLimits({
       ...Options.DefaultMakeCacheSettings,
       GuildMemberManager: 0,

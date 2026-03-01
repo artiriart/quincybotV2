@@ -4,6 +4,7 @@ const {
   SectionBuilder,
   ButtonBuilder,
   ButtonStyle,
+  TextDisplayBuilder,
   MessageFlags,
 } = require("discord.js");
 const { createV2Message } = require("../../utils/componentsV2");
@@ -11,6 +12,10 @@ const {
   extractMentionedUserId,
   resolveReferencedAuthor,
 } = require("../handleMessageHelpers");
+const {
+  isSwsAllyInfoEmbed,
+  parseEdit3ReactionIdentifier,
+} = require("../swsPresetUtils");
 
 const sws_emoji_map = {
   common: "Common",
@@ -24,8 +29,191 @@ const sws_emoji_map = {
   void: "Void",
   patreon: "Patreon",
 };
+const SWS_RAID_TICKET_NOTIFY_STATE = "sws_raid_ticket_notify_state";
+
+function getRaidTicketEmojiUrl() {
+  const ticketRow = global.db.safeQuery(
+    `
+    SELECT emoji_id
+    FROM sws_items
+    WHERE LOWER(name) = LOWER(?)
+       OR LOWER(name) LIKE LOWER(?)
+    ORDER BY
+      CASE WHEN LOWER(name) = LOWER(?) THEN 0 ELSE 1 END,
+      LENGTH(name) ASC
+    LIMIT 1
+    `,
+    ["Raid Ticket", "%raid%ticket%", "Raid Ticket"],
+  )?.[0];
+  const emojiId = String(ticketRow?.emoji_id || "").trim();
+  if (!emojiId) return null;
+  return `https://cdn.discordapp.com/emojis/${emojiId}.webp`;
+}
+
+function parseTicketSummaryLines(embedDescription) {
+  const lines = String(embedDescription || "")
+    .split("\n")
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+
+  if (!lines.length) return [];
+  if (!/^raid started!?$/i.test(lines[0])) return [];
+
+  const entries = [];
+  for (const line of lines.slice(1)) {
+    const match = line.match(/\((\d+)\s+left\)/i);
+    if (!match) continue;
+    const left = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(left)) continue;
+    entries.push({ left, line });
+  }
+  return entries;
+}
+
+function getReadyButtonUserIds(message) {
+  const row = message?.components?.[0]?.components;
+  if (!Array.isArray(row) || !row.length) return [];
+
+  return row.map((button) => {
+    const parts = String(button?.customId || "").split(";=;");
+    return String(parts?.[1] || "").trim() || null;
+  });
+}
+
+async function sendRaidTicketReminder(message, userId, ticketEmojiUrl) {
+  const mention = `<@${userId}>`;
+  const section = new SectionBuilder()
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `### ${mention} Buy new Raid Tickets\n## \`+buy 32 [amt]\``,
+      ),
+    )
+    .setThumbnailAccessory((thumb) => {
+      thumb.setURL(ticketEmojiUrl || "https://cdn.discordapp.com/embed/avatars/0.png");
+      return thumb;
+    });
+
+  const container = new ContainerBuilder().addSectionComponents(section);
+  await message.channel.send({
+    content: mention,
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+function loadRaidTicketNotifyState(userId) {
+  const raw = global.db.getState(SWS_RAID_TICKET_NOTIFY_STATE, userId);
+  if (!raw) {
+    return {
+      thresholdValue: null,
+      thresholdNotified: false,
+      zeroNotified: false,
+      lastTickets: null,
+    };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      thresholdValue: Number.isFinite(Number(parsed?.thresholdValue))
+        ? Number(parsed.thresholdValue)
+        : null,
+      thresholdNotified: Boolean(parsed?.thresholdNotified),
+      zeroNotified: Boolean(parsed?.zeroNotified),
+      lastTickets: Number.isFinite(Number(parsed?.lastTickets))
+        ? Number(parsed.lastTickets)
+        : null,
+    };
+  } catch {
+    return {
+      thresholdValue: null,
+      thresholdNotified: false,
+      zeroNotified: false,
+      lastTickets: null,
+    };
+  }
+}
+
+function saveRaidTicketNotifyState(userId, state) {
+  global.db.upsertState(
+    SWS_RAID_TICKET_NOTIFY_STATE,
+    JSON.stringify({
+      thresholdValue: Number.isFinite(Number(state?.thresholdValue))
+        ? Number(state.thresholdValue)
+        : null,
+      thresholdNotified: Boolean(state?.thresholdNotified),
+      zeroNotified: Boolean(state?.zeroNotified),
+      lastTickets: Number.isFinite(Number(state?.lastTickets))
+        ? Number(state.lastTickets)
+        : null,
+      updatedAt: Date.now(),
+    }),
+    userId,
+    true,
+  );
+}
 
 async function handleSwsMessage(message, oldMessage, settings) {
+  if (!oldMessage && message?.embeds?.[0]?.description) {
+    const ticketEntries = parseTicketSummaryLines(message.embeds[0].description);
+    if (ticketEntries.length) {
+      const raiderUserIds = getReadyButtonUserIds(message);
+      if (raiderUserIds.length) {
+        const ticketEmojiUrl = getRaidTicketEmojiUrl();
+        const reminders = [];
+
+        for (let index = 0; index < Math.min(ticketEntries.length, raiderUserIds.length); index += 1) {
+          const userId = raiderUserIds[index];
+          const left = ticketEntries[index]?.left;
+          if (!userId || !Number.isFinite(left)) continue;
+
+          const threshold = settings.getUserNumberSetting(
+            userId,
+            "sws_raid_ticket_reminder",
+            0,
+          );
+          if (!threshold || threshold <= 0 || threshold > 50) continue;
+
+          const notifyState = loadRaidTicketNotifyState(userId);
+          if (notifyState.thresholdValue !== threshold) {
+            notifyState.thresholdValue = threshold;
+            notifyState.thresholdNotified = false;
+            notifyState.zeroNotified = false;
+          }
+
+          // New ticket cycle (after buying), allow threshold/zero reminders again.
+          if (left > threshold) {
+            notifyState.thresholdNotified = false;
+            notifyState.zeroNotified = false;
+            notifyState.lastTickets = left;
+            saveRaidTicketNotifyState(userId, notifyState);
+            continue;
+          }
+
+          const hitThreshold = left === threshold && !notifyState.thresholdNotified;
+          const hitZero = left === 0 && !notifyState.zeroNotified;
+          if (!hitThreshold && !hitZero) {
+            notifyState.lastTickets = left;
+            saveRaidTicketNotifyState(userId, notifyState);
+            continue;
+          }
+
+          if (hitThreshold) notifyState.thresholdNotified = true;
+          if (hitZero) notifyState.zeroNotified = true;
+          notifyState.lastTickets = left;
+          saveRaidTicketNotifyState(userId, notifyState);
+          reminders.push(userId);
+        }
+
+        if (reminders.length) {
+          for (const userId of new Set(reminders)) {
+            await sendRaidTicketReminder(message, userId, ticketEmojiUrl);
+          }
+          return;
+        }
+      }
+    }
+  }
+
   if (
     /with your partner|hanging out with|with your wife|spent some time with your/i.test(
       String(message?.embeds?.[0]?.title || ""),
@@ -195,6 +383,12 @@ async function handleSwsMessage(message, oldMessage, settings) {
     if (Number.isFinite(cdMultiplier) && cdMultiplier > 0) {
       global.db.upsertState("swsCdPerk", String(cdMultiplier), userId);
     }
+    return;
+  }
+
+  if (isSwsAllyInfoEmbed(message?.embeds?.[0])) {
+    const reactionEmoji = parseEdit3ReactionIdentifier();
+    await message.react(reactionEmoji).catch(() => {});
     return;
   }
 

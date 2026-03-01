@@ -3,11 +3,12 @@
 - 7w7:
   - raid help
   - presets viewer & saver with pagnation and V2 components
-  - ticket refill notifier + setting on x tickets
+  - (test) ticket refill notifier + setting on x tickets
   
 - anigame:
   - bulksell operation
   - raidlist
+  - (test) cl/f notifs
 
 - karuta:
   - (test) visit reminders
@@ -16,15 +17,6 @@
   - reconstruct whole module to work better
   - Component V2 & better menus & home UI with all features
   - keep older logic in terms of core game logic
-
-- utils:
-  - custom reminder command
-  - advanced dice command
-  - "Quincybot V2!!! better ig..." Bot status
-  - curate Help command
-  - /repo command
-  - curate readme.md what bot does + i'd love to review and accept pr's
-    - first clean up code though
 
 - izzi:
   - raidlist 

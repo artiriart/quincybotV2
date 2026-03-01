@@ -13,6 +13,7 @@ const { recognizeKarutaCardsWithGemmaFromUrl } = require("../karutaGemma");
 
 const KARUTA_RECOG_STATE_TYPE = "karuta_recognition_settings";
 const KARUTA_GUILD_DROP_CALC_STATE_TYPE = "karuta_drop_calculation_enabled";
+const KARUTA_DROP_RECOG_DEBOUNCE_TYPE = "karuta_drop_recog_once";
 
 function getKarutaRecognitionMode() {
   const raw = global.db.getState(KARUTA_RECOG_STATE_TYPE, "global");
@@ -49,10 +50,31 @@ function getKarutaDropImageUrl(message) {
   return fromEmbed ? String(fromEmbed) : null;
 }
 
+function claimKarutaDropRecognition(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) return false;
+
+  const result = global.db.safeQuery(
+    `
+    INSERT INTO states (id, type, state, isPermanent)
+    VALUES (?, ?, '{}', 0)
+    ON CONFLICT(id, type) DO NOTHING
+    `,
+    [id, KARUTA_DROP_RECOG_DEBOUNCE_TYPE],
+    null,
+  );
+
+  return Number(result?.changes || 0) > 0;
+}
+
 async function handleKarutaDropRecognition(message, settings) {
   if (!message?.guildId) return;
   const content = String(message?.content || "");
-  if (!/\bis dropping\s+(3|4)\s+cards!/i.test(content)) return;
+  if (
+    !/\bis dropping\s+(3|4)\s+cards!/i.test(content) ||
+    content.includes("drop has expired")
+  )
+    return;
 
   const guildEnabled = settings.getGuildToggle(
     message.guildId,
@@ -60,6 +82,7 @@ async function handleKarutaDropRecognition(message, settings) {
     true,
   );
   if (!guildEnabled) return;
+  if (!claimKarutaDropRecognition(message.id)) return;
 
   const mode = getKarutaRecognitionMode();
   if (mode === "off") return;

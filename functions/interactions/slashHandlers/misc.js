@@ -57,6 +57,13 @@ const ANIGAME_TOGGLES = [
 ];
 
 const MODAL_SETTINGS = {
+  sws_raid_ticket_reminder: {
+    category: "7w7",
+    title: "Raid Ticket Reminder",
+    prompt: "Number 1-50 or false/disable/n/no/stop/0",
+    defaultValue: 0,
+    maxValue: 50,
+  },
   anigame_raid_input_autodelete: {
     category: "anigame",
     title: "Raid Input auto-delete",
@@ -284,6 +291,8 @@ function build7w7Container(interaction) {
   );
 
   addToggleSections(container, interaction, "7w7", SWS_REMINDER_TOGGLES);
+  container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+  addNumberSettingSection(container, interaction, "sws_raid_ticket_reminder");
 
   if (isAdmin) {
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
@@ -563,6 +572,16 @@ async function handleSettingsModal(interaction) {
     });
     return;
   }
+  if (
+    Number.isFinite(definition.maxValue) &&
+    parsed > Number(definition.maxValue)
+  ) {
+    await interaction.reply({
+      content: `Invalid value. Maximum allowed is ${definition.maxValue}.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
 
   setUserNumberSetting(interaction.user.id, settingKey, parsed);
   await interaction.reply(buildSettingsPayload(interaction, category, true));
@@ -780,12 +799,57 @@ async function runInvite(interaction) {
 }
 
 async function runDice(interaction) {
-  const range = Math.max(2, interaction.options.getInteger("range") || 6);
+  const rawRange = String(interaction.options.getString("range") || "1-6").trim();
   const amount = Math.max(1, Math.min(20, interaction.options.getInteger("amount") || 1));
   const unique = interaction.options.getBoolean("unique");
   const uniqueMode = unique == null ? true : unique;
 
-  if (uniqueMode && amount > range) {
+  let minRange = 1;
+  let maxRange = 6;
+  const singleMatch = rawRange.match(/^\d+$/);
+  const spanMatch = rawRange.match(/^(\d+)\s*-\s*(\d+)$/);
+
+  if (singleMatch) {
+    maxRange = Math.max(1, Number.parseInt(singleMatch[0], 10));
+  } else if (spanMatch) {
+    const a = Number.parseInt(spanMatch[1], 10);
+    const b = Number.parseInt(spanMatch[2], 10);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) {
+      await interaction.reply({
+        content: "Invalid range. Use `x-y` like `4-5`.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    minRange = Math.min(a, b);
+    maxRange = Math.max(a, b);
+  } else if (rawRange) {
+    await interaction.reply({
+      content: "Invalid range. Use `x-y` like `4-5` or a single number like `6`.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (minRange < 0 || maxRange < 0) {
+    await interaction.reply({
+      content: "Range must be non-negative.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (minRange === maxRange && amount > 1 && uniqueMode) {
+    await interaction.reply({
+      content: "Unique rolls cannot exceed range.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rangeSize = maxRange - minRange + 1;
+
+  if (uniqueMode && amount > rangeSize) {
     await interaction.reply({
       content: "Unique rolls cannot exceed range.",
       flags: MessageFlags.Ephemeral,
@@ -795,13 +859,47 @@ async function runDice(interaction) {
 
   const values = [];
   while (values.length < amount) {
-    const roll = Math.floor(Math.random() * range) + 1;
+    const roll = Math.floor(Math.random() * rangeSize) + minRange;
     if (uniqueMode && values.includes(roll)) continue;
     values.push(roll);
   }
 
+  const rollingContainer = new ContainerBuilder().addSectionComponents(
+    new SectionBuilder()
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent("## Rolling Die..."))
+      .setThumbnailAccessory((thumb) => {
+        thumb.setURL("https://cdn3.emoji.gg/emojis/39865-dice.gif");
+        return thumb;
+      }),
+  );
+
   await interaction.reply({
-    content: `Rolled: ${values.join(", ")}`,
+    content: "",
+    components: [rollingContainer],
+    flags: MessageFlags.IsComponentsV2,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+
+  const resultText = amount === 1 ? `${values[0]}` : values.join(", ");
+  const resultContainer = new ContainerBuilder()
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent("## Rolled the Die"))
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(`# Result: \`${resultText}\``),
+        )
+        .setThumbnailAccessory((thumb) => {
+          thumb.setURL("https://cdn3.emoji.gg/emojis/62507-sweetheart-dice.png");
+          return thumb;
+        }),
+    );
+
+  await interaction.editReply({
+    content: "",
+    components: [resultContainer],
+    flags: MessageFlags.IsComponentsV2,
   });
 }
 

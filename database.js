@@ -39,11 +39,6 @@ const schema = {
     _constraint: "PRIMARY KEY (level, name, title)",
   },
   // ===== 7W7 BOT DATA =====
-  sws_faq: {
-    topic: "TEXT NOT NULL",
-    answer: "TEXT DEFAULT NULL",
-    _constraint: "PRIMARY KEY (topic)",
-  },
   // ===== ANIME BOTS DATA =====
   card_stats: {
     user_id: "TEXT NOT NULL",
