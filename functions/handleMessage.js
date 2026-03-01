@@ -5,6 +5,8 @@ const {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  SeparatorBuilder,
+  TextDisplayBuilder,
 } = require("discord.js");
 const { createV2Message } = require("../utils/componentsV2");
 const {
@@ -20,6 +22,8 @@ const {
   upsertCardClaim,
   upsertDankStat,
 } = require("./handleMessageHelpers");
+const { recognizeKarutaCardsFromUrl } = require("./karutaOcr");
+const { recognizeKarutaCardsWithGemmaFromUrl } = require("./karutaGemma");
 
 const anigame_emoji_map = {
   "<:common:1068421015509684224>": "Common",
@@ -53,6 +57,344 @@ const dank_adventure_ticket_map = {
   "Pepe goes down under": 2,
   "Pepe goes to Brazil!": 3,
 };
+
+const KARUTA_RECOG_STATE_TYPE = "karuta_recognition_settings";
+const KARUTA_GUILD_DROP_CALC_STATE_TYPE = "karuta_drop_calculation_enabled";
+
+function getKarutaRecognitionMode() {
+  const raw = global.db.getState(KARUTA_RECOG_STATE_TYPE, "global");
+  if (!raw) return "tesseract";
+  try {
+    const parsed = JSON.parse(raw);
+    const mode = String(parsed?.mode || "").trim().toLowerCase();
+    if (["off", "tesseract", "gemma3"].includes(mode)) return mode;
+  } catch {}
+  return "tesseract";
+}
+
+function normalizeKarutaLookup(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function getKarutaDropImageUrl(message) {
+  const fromAttachment = (message?.attachments?.find((a) =>
+    String(a?.contentType || "").toLowerCase().startsWith("image/"),
+  ) || message?.attachments?.first?.())?.url;
+  if (fromAttachment) return String(fromAttachment);
+
+  const embed = message?.embeds?.[0];
+  const fromEmbed = embed?.image?.url || embed?.thumbnail?.url || null;
+  return fromEmbed ? String(fromEmbed) : null;
+}
+
+async function handleKarutaDropRecognition(message, settings) {
+  if (!message?.guildId) return;
+  const content = String(message?.content || "");
+  if (!/\bis dropping\s+(3|4)\s+cards!/i.test(content)) return;
+
+  const guildEnabled = settings.getGuildToggle(
+    message.guildId,
+    KARUTA_GUILD_DROP_CALC_STATE_TYPE,
+    true,
+  );
+  if (!guildEnabled) return;
+
+  const mode = getKarutaRecognitionMode();
+  if (mode === "off") return;
+
+  const imageUrl = getKarutaDropImageUrl(message);
+  if (!imageUrl) return;
+
+  let cards = [];
+  let loadTimeSec = null;
+  try {
+    const result =
+      mode === "gemma3"
+        ? await recognizeKarutaCardsWithGemmaFromUrl(imageUrl)
+        : await recognizeKarutaCardsFromUrl(imageUrl);
+    cards = Array.isArray(result?.cards) ? result.cards.slice(0, 4) : [];
+    loadTimeSec = Number(result?.load_time_sec);
+  } catch (error) {
+    console.error("[karuta-drop] recognition failed:", error?.message || error);
+    return;
+  }
+
+  if (!cards.length) return;
+  const dbEmoji = global.db.getFeatherEmojiMarkdown("database") || "";
+  const clockEmoji = global.db.getFeatherEmojiMarkdown("clock") || "⏱️";
+  const expireEmoji = global.db.getFeatherEmojiMarkdown("x-circle") || "❌";
+  const numberEmojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"];
+  const lines = [];
+  const pingUsers = new Set();
+
+  for (let i = 0; i < cards.length; i += 1) {
+    const card = cards[i] || {};
+    const displayName = String(card?.name || "").trim() || "Unknown";
+    const displaySeries = String(card?.series || "").trim() || "Unknown";
+    const nameKey = normalizeKarutaLookup(displayName);
+    const seriesKey = normalizeKarutaLookup(displaySeries);
+
+    const knownCard = global.db.safeQuery(
+      `
+      SELECT 1
+      FROM karuta_cards
+      WHERE name = ? AND series = ?
+      LIMIT 1
+      `,
+      [nameKey, seriesKey],
+    )?.[0];
+
+    const wishRows = global.db.safeQuery(
+      `
+      SELECT user_id
+      FROM karuta_wishlists
+      WHERE guild_id = ? AND series = ?
+      ORDER BY user_id ASC
+      `,
+      [message.guildId, seriesKey],
+      [],
+    );
+    const mentions = wishRows.map((row) => `<@${row.user_id}>`).filter(Boolean);
+    for (const row of wishRows) {
+      if (row?.user_id) pingUsers.add(String(row.user_id));
+    }
+    const mentionText = mentions.length ? mentions.join(", ") : "None";
+
+    lines.push(
+      `${numberEmojis[i] || `${i + 1}.`} **${displayName}** (${displaySeries})${knownCard ? "" : ` ${dbEmoji}`}`.trim(),
+    );
+    lines.push(`-# Series Wishlist: ${mentionText}`);
+  }
+
+  const expiresAtUnix = Math.floor(
+    (Number(message?.createdTimestamp || Date.now()) + 60_000) / 1000,
+  );
+  const footerLine = `-# ${clockEmoji} ${Number.isFinite(loadTimeSec) ? `${loadTimeSec.toFixed(2)}s` : "?"} | ${expireEmoji} <t:${expiresAtUnix}:R>`;
+
+  const container = new ContainerBuilder()
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent("### Karuta Drop"))
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join("\n")))
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(footerLine));
+
+  await message.channel
+    .send({
+      content: "",
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
+      allowedMentions: { users: [...pingUsers], parse: [] },
+    })
+    .catch(() => {});
+}
+
+function parseAnigameBaseStats(rawStats) {
+  try {
+    const parsed = typeof rawStats === "string" ? JSON.parse(rawStats) : rawStats || {};
+    return {
+      ATK: String(parsed?.ATK || "?"),
+      DEF: String(parsed?.DEF || "?"),
+      HP: String(parsed?.HP || "?"),
+      SPD: String(parsed?.SPD || "?"),
+    };
+  } catch {
+    return { ATK: "?", DEF: "?", HP: "?", SPD: "?" };
+  }
+}
+
+function toAnigameRarityLabel(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  const labels = {
+    common: "Common",
+    uncommon: "Uncommon",
+    rare: "Rare",
+    super_rare: "Super Rare",
+    ultra_rare: "Ultra Rare",
+  };
+  return labels[value] || "Ultra Rare";
+}
+
+function getAnigameRarityEmoji(rarityValue) {
+  const key = String(rarityValue || "").trim().toLowerCase();
+  if (key === "common") return global.db.getFeatherEmojiMarkdown("anigame_common") || "";
+  if (key === "uncommon") {
+    return [
+      global.db.getFeatherEmojiMarkdown("anigame_uncommon_1") || "",
+      global.db.getFeatherEmojiMarkdown("anigame_uncommon_2") || "",
+    ]
+      .filter(Boolean)
+      .join("");
+  }
+  if (key === "rare") return global.db.getFeatherEmojiMarkdown("anigame_rare_1") || "";
+  if (key === "super_rare") {
+    return [
+      global.db.getFeatherEmojiMarkdown("anigame_super_rare_1") || "",
+      global.db.getFeatherEmojiMarkdown("anigame_super_rare_2") || "",
+    ]
+      .filter(Boolean)
+      .join("");
+  }
+  if (key === "ultra_rare") {
+    return [
+      global.db.getFeatherEmojiMarkdown("anigame_ultra_rare_1") || "",
+      global.db.getFeatherEmojiMarkdown("anigame_ultra_rare_2") || "",
+    ]
+      .filter(Boolean)
+      .join("");
+  }
+  return "";
+}
+
+function collectAnigameShopText(message) {
+  const texts = [];
+
+  const embed = message?.embeds?.[0];
+  if (embed?.title) texts.push(String(embed.title));
+  if (embed?.description) texts.push(String(embed.description));
+  for (const field of embed?.fields || []) {
+    if (field?.name) texts.push(String(field.name));
+    if (field?.value) texts.push(String(field.value));
+  }
+
+  for (const row of message?.components || []) {
+    for (const component of row?.components || []) {
+      if (component?.content) texts.push(String(component.content));
+      if (component?.label) texts.push(String(component.label));
+    }
+  }
+
+  return texts.join("\n");
+}
+
+function reminderCardIsInShop(shopTextLower, cardName, rarityValue = null) {
+  const name = String(cardName || "").trim().toLowerCase();
+  if (!name) return false;
+
+  const index = shopTextLower.indexOf(name);
+  if (index === -1) return false;
+  if (!rarityValue) return true;
+
+  const rarityTerms = {
+    common: ["common"],
+    uncommon: ["uncommon"],
+    rare: ["rare"],
+    super_rare: ["super rare", "super_rare", "sr"],
+    ultra_rare: ["ultra rare", "ultra_rare", "ur"],
+  };
+
+  const windowText = shopTextLower.slice(
+    Math.max(0, index - 120),
+    Math.min(shopTextLower.length, index + name.length + 120),
+  );
+  const targetKey = String(rarityValue || "").trim().toLowerCase();
+  const targetTerms = rarityTerms[targetKey] || [];
+  if (targetTerms.some((term) => windowText.includes(term))) {
+    return true;
+  }
+
+  const anyRarityMentioned = Object.values(rarityTerms).some((terms) =>
+    terms.some((term) => windowText.includes(term)),
+  );
+  return !anyRarityMentioned;
+}
+
+function buildAnigameReminderDmPayload(reminder, shopType) {
+  const shopLabel = shopType === "clan_shop" ? "Clan Shop" : "Fragment Shop";
+  const rarityEmoji =
+    shopType === "clan_shop" ? getAnigameRarityEmoji(reminder?.rarity) : "";
+  const stats = parseAnigameBaseStats(reminder?.base_stats);
+  const cardUrl = String(reminder?.card_url || "").trim();
+  const fallbackThumb = "https://cdn.discordapp.com/embed/avatars/0.png";
+  const cardTitle =
+    shopType === "clan_shop"
+      ? `${rarityEmoji ? `${rarityEmoji} ` : ""}${reminder?.card_name || "Unknown"}`
+      : `${reminder?.card_name || "Unknown"}`;
+
+  const container = new ContainerBuilder()
+    .addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
+            `### A ${shopLabel} card from your reminders is available`,
+          ),
+        )
+        .setThumbnailAccessory((thumb) => {
+          thumb.setURL(fallbackThumb);
+          return thumb;
+        }),
+    )
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
+            `### Name: ${cardTitle}\n-# Stats: Atk ${stats.ATK} | Def ${stats.DEF} | Hp ${stats.HP} | Spd ${stats.SPD}`,
+          ),
+        )
+        .setThumbnailAccessory((thumb) => {
+          thumb.setURL(/^https?:\/\//i.test(cardUrl) ? cardUrl : fallbackThumb);
+          return thumb;
+        }),
+    );
+
+  return {
+    content: "",
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
+  };
+}
+
+async function notifyAnigameShopReminders(message, shopType) {
+  const shopText = collectAnigameShopText(message);
+  const shopTextLower = shopText.toLowerCase();
+  if (!shopTextLower.trim()) return;
+
+  const reminders = global.db.safeQuery(
+    `
+    SELECT
+      r.user_id,
+      r.card_name,
+      r.rarity,
+      c.base_stats,
+      c.card_url
+    FROM anigame_reminders r
+    LEFT JOIN anigame_cards c
+      ON LOWER(c.name) = LOWER(r.card_name)
+    WHERE r.type = ?
+    `,
+    [shopType],
+    [],
+  );
+
+  const matched = reminders.filter((row) =>
+    reminderCardIsInShop(
+      shopTextLower,
+      row?.card_name,
+      shopType === "clan_shop" ? row?.rarity : null,
+    ),
+  );
+
+  const seen = new Set();
+  for (const reminder of matched) {
+    const userId = String(reminder?.user_id || "").trim();
+    const cardName = String(reminder?.card_name || "").trim().toLowerCase();
+    if (!userId || !cardName) continue;
+
+    const dedupeKey = `${userId}:${shopType}:${cardName}:${String(reminder?.rarity || "")}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const user =
+      global.bot.users.cache.get(userId) ||
+      (await global.bot.users.fetch(userId).catch(() => null));
+    if (!user) continue;
+
+    await user.send(buildAnigameReminderDmPayload(reminder, shopType)).catch(() => {});
+  }
+}
 
 function shouldTrackDankStats(getUserToggle, userId) {
   if (!userId) return false;
@@ -230,7 +572,12 @@ async function handleSwsMessage(message, oldMessage, settings) {
       .addSectionComponents(
         new SectionBuilder()
           .addTextDisplayComponents(td => td.setContent(`### Raid started!\n${raidUsers.map((user) => `<@${user.id}>`).join(", ")}`))
-          .setThumbnailAccessory(thumb => thumb.setURL(message?.embeds?.[0]?.thumbnail?.url))
+          .setThumbnailAccessory((thumb) => {
+            thumb.setURL(
+              String(message?.embeds?.[0]?.thumbnail?.url || "https://cdn.discordapp.com/embed/avatars/0.png"),
+            );
+            return thumb;
+          })
       );
 
     await message.reply({
@@ -363,15 +710,17 @@ async function handleAnigameMessage(message, oldMessage, settings) {
   }
 
   if (message?.embeds?.[0]?.title === "Calendar Fragment Shop" && !oldMessage) {
+    await notifyAnigameShopReminders(message, "fragment_shop");
     return;
   }
 
   if (
     message?.components?.[0]?.components?.some(
       (c) => c?.type === 10 && c?.content?.includes("Clan Shop"),
-    ) &&
+  ) &&
     !oldMessage
   ) {
+    await notifyAnigameShopReminders(message, "clan_shop");
     return;
   }
 
@@ -646,34 +995,121 @@ async function handleDankMessage(message, settings) {
 }
 
 async function handleKarutaMessage(message, settings) {
-  if (message?.embeds?.[0]?.title !== "Visit Character") return;
+  await handleKarutaDropRecognition(message, settings);
+
+  const embed = message?.embeds?.[0];
+  const title = String(embed?.title || "");
+  const description = String(embed?.description || "");
+
+  const normalizeKarutaKey = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "");
+
+  const upsertKarutaCard = (input) => {
+    const displayName = String(input?.displayName || "").trim();
+    const displaySeries = String(input?.displaySeries || "").trim();
+    const wishlistValue = Number.parseInt(
+      String(input?.wishlist || "0").replaceAll(",", ""),
+      10,
+    );
+    const wishlist = Number.isFinite(wishlistValue) ? wishlistValue : 0;
+    const cardUrl = String(input?.cardUrl || "").trim();
+    const name = normalizeKarutaKey(displayName);
+    const series = normalizeKarutaKey(displaySeries);
+    if (!name || !series) return;
+
+    global.db.safeQuery(
+      `
+      INSERT INTO karuta_cards (name, series, display_name, display_series, wishlist, card_url)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(name, series) DO UPDATE SET
+        wishlist = excluded.wishlist,
+        display_name = CASE
+          WHEN COALESCE(excluded.display_name, '') <> '' THEN excluded.display_name
+          ELSE karuta_cards.display_name
+        END,
+        display_series = CASE
+          WHEN COALESCE(excluded.display_series, '') <> '' THEN excluded.display_series
+          ELSE karuta_cards.display_series
+        END,
+        card_url = CASE
+          WHEN COALESCE(karuta_cards.card_url, '') = '' AND COALESCE(excluded.card_url, '') <> ''
+            THEN excluded.card_url
+          ELSE karuta_cards.card_url
+        END
+      `,
+      [name, series, displayName, displaySeries, wishlist, cardUrl],
+    );
+  };
+
+  if (title === "Character Lookup") {
+    const name = description.match(/Character\s*·\s*\*\*(.+?)\*\*/i)?.[1];
+    const series = description.match(/Series\s*·\s*\*\*(.+?)\*\*/i)?.[1];
+    const wishlist = description.match(/Wishlisted\s*·\s*\*\*(\d[\d,]*)\*\*/i)?.[1];
+    const cardUrl = String(embed?.thumbnail?.url || "").trim();
+
+    if (name && series && wishlist) {
+      upsertKarutaCard({
+        displayName: name,
+        displaySeries: series,
+        wishlist,
+        cardUrl,
+      });
+    }
+    return;
+  }
+
+  if (title === "Character Results") {
+    const lines = String(embed?.fields?.[0]?.value || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const match = line.match(
+        /`(?:\d+)`\.\s*`♡([\d,]+)`\s*·\s*(.+?)\s*·\s*\*\*(.+?)\*\*/i,
+      );
+      if (!match) continue;
+      const [, wishlist, series, name] = match;
+      upsertKarutaCard({
+        displayName: name,
+        displaySeries: series,
+        wishlist,
+        cardUrl: "",
+      });
+    }
+    return;
+  }
+
+  if (title !== "Visit Character") return;
 
   let reminderHours = null;
-  if (message?.embeds?.[0]?.description?.includes("you were recently rejected.")) {
+  if (description.includes("you were recently rejected.")) {
     reminderHours = 24;
-  } else if (message?.embeds?.[0]?.description?.includes("date was successful!")) {
+  } else if (description.includes("date was successful!")) {
     reminderHours = 10;
   }
 
-  const user = extractUserFromMention(message?.embeds?.[0]?.description);
+  const user = extractUserFromMention(description);
   const userId = user?.id;
+  if (!userId || !reminderHours) return;
 
-  if (userId && reminderHours) {
-    const enabled = settings.getUserToggle(userId, "karuta_visit_reminders", true);
-    if (enabled) {
-      global.db.createReminder(
-        userId,
-        message.channel,
-        reminderHours * 60,
-        "Karuta Visit",
-        {
-          command: `kvi ${message?.embeds?.[0]?.description?.split("`")?.[1] || ""}`,
-          information: "You can visit your partner again",
-        },
-        true,
-      );
-    }
-  }
+  const enabled = settings.getUserToggle(userId, "karuta_visit_reminders", true);
+  if (!enabled) return;
+
+  global.db.createReminder(
+    userId,
+    message.channel,
+    reminderHours * 60,
+    "Karuta Visit",
+    {
+      command: `kvi ${description.split("`")?.[1] || ""}`,
+      information: "You can visit your partner again",
+    },
+    true,
+  );
 }
 
 async function handleIzziMessage(message, settings) {

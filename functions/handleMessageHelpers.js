@@ -42,6 +42,7 @@ async function resolveDankUser(message) {
 function createSettingsReader() {
   const toggleCache = new Map();
   const numberCache = new Map();
+  const guildToggleCache = new Map();
 
   function toggleKey(userId, type) {
     return `${userId}:${type}`;
@@ -49,6 +50,10 @@ function createSettingsReader() {
 
   function numberKey(userId, type) {
     return `${userId}:${type}`;
+  }
+
+  function guildToggleKey(guildId, type) {
+    return `${guildId}:${type}`;
   }
 
   function getUserToggle(userId, type, defaultValue = true) {
@@ -104,9 +109,30 @@ function createSettingsReader() {
     return defaultValue;
   }
 
+  function getGuildToggle(guildId, type, defaultValue = true) {
+    if (!guildId || !type) return defaultValue;
+
+    const key = guildToggleKey(guildId, type);
+    if (guildToggleCache.has(key)) {
+      return guildToggleCache.get(key);
+    }
+
+    const raw = global.db.getState(type, guildId);
+    if (raw == null) {
+      guildToggleCache.set(key, defaultValue);
+      return defaultValue;
+    }
+
+    const text = String(raw).trim().toLowerCase();
+    const value = !(text === "0" || text === "false" || text === "off" || text === "disabled");
+    guildToggleCache.set(key, value);
+    return value;
+  }
+
   return {
     getUserToggle,
     getUserNumberSetting,
+    getGuildToggle,
   };
 }
 

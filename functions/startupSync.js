@@ -22,6 +22,7 @@ const CUSTOM_DANK_VALUES_PATH = path.join(
   "utils",
   "customDankItemValues.json",
 );
+const DECO_EMOJIS_PATH = path.join(__dirname, "..", "utils", "decoEmojis.json");
 const EMOJI_RESET_STATE_KEY = "startup_emoji_reset_v1";
 const DANK_CUSTOM_ITEM_IMAGES = {
   "Fish Tokens":
@@ -112,10 +113,30 @@ function loadCustomDankValues() {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
+    if (error?.code === "ENOENT") {
+      return [];
+    }
     console.error(
       "Custom dank item values load failed:",
       error.message || error,
     );
+    return [];
+  }
+}
+
+function loadDecoEmojis() {
+  try {
+    const raw = fs.readFileSync(DECO_EMOJIS_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((row) => ({
+        name: String(row?.name || "").trim(),
+        url: String(row?.url || "").trim(),
+      }))
+      .filter((row) => row.name && row.url);
+  } catch (error) {
+    console.error("Deco emoji config load failed:", error?.message || error);
     return [];
   }
 }
@@ -523,6 +544,61 @@ async function syncFeatherEmojis(sqlite, existingEmojis) {
   console.log(`Feather sync complete: ${indexed} indexed, ${created} created.`);
 }
 
+async function syncDecoEmojis(sqlite, existingEmojis) {
+  const app = global.bot?.application;
+  if (!app?.emojis) {
+    console.warn("Deco emoji sync skipped: application emoji manager unavailable.");
+    return;
+  }
+
+  const items = loadDecoEmojis();
+  if (!items.length) {
+    console.log("Deco emoji sync skipped: no items configured.");
+    return;
+  }
+
+  const upsertFeather = sqlite.prepare(`
+    INSERT INTO feather_emojis (name, markdown)
+    VALUES (?, ?)
+    ON CONFLICT(name) DO UPDATE SET markdown = excluded.markdown
+  `);
+
+  let created = 0;
+  let indexed = 0;
+
+  for (const item of items) {
+    const emojiName = normalizeEmojiName(item.name, "");
+    let emoji = existingEmojis.get(emojiName.toLowerCase()) || null;
+
+    if (!emoji) {
+      emoji = await ensureApplicationEmoji(
+        app,
+        existingEmojis,
+        emojiName,
+        item.url,
+        "Deco",
+      );
+      if (emoji) created += 1;
+    }
+
+    const markdown = emojiMarkdown(emoji);
+    if (!markdown) continue;
+
+    upsertFeather.run(emojiName, markdown);
+
+    if (emojiName.startsWith("dank_")) {
+      const alias = emojiName.slice(5).trim();
+      if (alias) {
+        upsertFeather.run(alias, markdown);
+      }
+    }
+
+    indexed += 1;
+  }
+
+  console.log(`Deco emoji sync complete: ${indexed} indexed, ${created} created.`);
+}
+
 async function syncIzziCards(sqlite) {
   const cards = extractListPayload(
     await fetchJson(IZZI_CARDS_URL, "Izzi cards"),
@@ -638,7 +714,12 @@ async function fetchAnigameRows() {
     String(col?.label || "").trim(),
   );
   const rows = (gviz?.table?.rows || []).map((row) =>
-    (row?.c || []).map((cell) => (cell ? cell.v : "")),
+    (row?.c || []).map((cell) => {
+      if (!cell) return "";
+      if (cell.v != null) return cell.v;
+      if (cell.f != null) return cell.f;
+      return "";
+    }),
   );
 
   return { headers, rows };
@@ -670,17 +751,33 @@ async function syncAnigameCards(sqlite) {
   const atkIdx = getIndex("card_atk", "atk");
   const defIdx = getIndex("card_def", "def");
   const spdIdx = getIndex("card_spd", "spd");
+  const cardUrlIdx = getIndex(
+    "card_url",
+    "art",
+    "card_art",
+    "art_url",
+    "image_url",
+    "image",
+    "img",
+    "image link",
+    "card_image",
+    "thumbnail",
+    "thumbnail_url",
+    "url",
+    "link",
+  );
 
   if (nameIdx === -1) {
     throw new Error("Anigame sheet missing card name column.");
   }
 
   const upsertCard = sqlite.prepare(`
-    INSERT INTO anigame_cards (name, talent, element, base_stats)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO anigame_cards (name, talent, element, card_url, base_stats)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       talent = excluded.talent,
       element = excluded.element,
+      card_url = excluded.card_url,
       base_stats = excluded.base_stats
   `);
 
@@ -700,6 +797,15 @@ async function syncAnigameCards(sqlite) {
       name,
       talentIdx === -1 ? null : String(row?.[talentIdx] || "").trim() || null,
       elementIdx === -1 ? null : String(row?.[elementIdx] || "").trim() || null,
+      cardUrlIdx === -1
+        ? null
+        : (() => {
+            const raw = String(row?.[cardUrlIdx] || "").trim();
+            if (!raw) return null;
+            if (/^https?:\/\//i.test(raw)) return raw;
+            const match = raw.match(/https?:\/\/[^"\s)]+/i);
+            return match ? match[0] : null;
+          })(),
       baseStats,
     );
 
@@ -728,6 +834,7 @@ async function runStartupSync() {
     const steps = [
       () => syncDankItemsAndEmojis(sqlite, existingEmojis),
       () => syncFeatherEmojis(sqlite, existingEmojis),
+      () => syncDecoEmojis(sqlite, existingEmojis),
       () => syncIzziCards(sqlite),
       () => syncIzziAbilities(sqlite),
       () => syncIzziItems(sqlite),

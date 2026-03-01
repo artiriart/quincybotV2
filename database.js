@@ -31,11 +31,6 @@ const schema = {
     type: "TEXT NOT NULL",
     _constraint: "PRIMARY KEY (name, amount, type)",
   },
-  dank_randomevent_lootpool: {
-    item_name: "TEXT NOT NULL",
-    event_name: "TEXT NOT NULL",
-    _constraint: "PRIMARY KEY (item_name, event_name)",
-  },
   dank_level_rewards: {
     level: "INTEGER NOT NULL",
     name: "TEXT DEFAULT NULL",
@@ -67,9 +62,18 @@ const schema = {
   karuta_cards: {
     name: "TEXT NOT NULL",
     series: "TEXT NOT NULL",
+    display_name: "TEXT DEFAULT NULL",
+    display_series: "TEXT DEFAULT NULL",
     wishlist: "INTEGER DEFAULT 0",
-    print: "INTEGER DEFAULT 5000",
+    card_url: "TEXT DEFAULT ''",
     _constraint: "PRIMARY KEY (name, series)",
+  },
+  karuta_wishlists: {
+    user_id: "TEXT NOT NULL",
+    guild_id: "TEXT NOT NULL DEFAULT 'global'",
+    series: "TEXT NOT NULL",
+    wishlist_min: "INTEGER DEFAULT 0",
+    _constraint: "PRIMARY KEY (user_id, guild_id, series)",
   },
   izzi_cards: {
     name: "TEXT NOT NULL",
@@ -105,6 +109,7 @@ const schema = {
     name: "TEXT PRIMARY KEY",
     talent: "TEXT DEFAULT NULL",
     element: "TEXT DEFAULT NULL",
+    card_url: "TEXT DEFAULT NULL",
     base_stats:
       'TEXT DEFAULT \'{"ATK": "80", "HP": "80", "DEF": "80", "SPD": "80"}\'',
   },
@@ -324,7 +329,7 @@ function syncTable(table, definition) {
     const common = definedCols.filter((c) => existingCols.includes(c));
     if (common.length) {
       db.prepare(
-        `INSERT INTO ${table} (${common.join(",")})
+        `INSERT OR IGNORE INTO ${table} (${common.join(",")})
          SELECT ${common.join(",")} FROM ${temp}`,
       ).run();
     }

@@ -1,23 +1,16 @@
 - make files shorter by moving helper functions or creating dirs
 
 - 7w7:
-  - dump faq
   - think about dumping raid help (propably not though)
   - presets viewer with pagnation and V2 components
   - ticket refill notifier + setting on x tickets
-  - raidlist
+  
 - anigame:
-  - clan/fshop reminder panel (to edit remind cards)
   - bulksell operation
   - raidlist
 
 - karuta:
-  - drop recognition
-  - visit reminders
-  - card recognition
-  - card metadata indexing
-  - per server toggle of drop recog
-  - wishlist for card recog via series with script ENV setting: Gemma 1b / Tesseract / off
+  - (test) visit reminders
 
 - lab (low prio):
   - reconstruct whole module to work better
@@ -29,7 +22,7 @@
   - custom reminder command
   - reminder ending handler
   - advanced dice command
-  - "Quincybot V2!!! better ig..."
+  - "Quincybot V2!!! better ig..." Bot status
   - curate Help command
   - /repo command
   - curate readme.md what bot does + i'd love to review and accept pr's
@@ -39,7 +32,6 @@
   - Nuke stat viewer
   - weekly bundle box reminder
   - itemcalc
-  - get rid of randomevents reward list table
   - add support to multipliers in /dank stats
      - crop to minimal, then if existent create section button to expand menu that shows them
 

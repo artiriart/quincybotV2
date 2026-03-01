@@ -229,6 +229,22 @@ function getPremiumConfig(value) {
   return { xp: null, coins: null, luck: null, name: "Premium" };
 }
 
+function getMultiplierUiEmoji(name, fallback = "") {
+  return global.db.getFeatherEmojiMarkdown(name) || fallback;
+}
+
+function getPremiumTierEmoji(tierValue) {
+  const tier = String(tierValue || "none");
+  if (tier === "credit_card") {
+    return (
+      global.db.getDankItemEmojiMarkdown("Credit Card") ||
+      getMultiplierUiEmoji("dank_gecko", "")
+    );
+  }
+
+  return getMultiplierUiEmoji(`dank_membership_${tier}`, "");
+}
+
 function formatMultiplierAmount(multiplierType, amount) {
   if (multiplierType === "xp") return `${Number(amount).toFixed(2)}x`;
   return `${Number(amount) >= 0 ? "+" : ""}${Number(amount).toFixed(2)}%`;
@@ -365,16 +381,19 @@ function loadLevelRewardsSummary(startLevel, endLevel, tacoEnabled) {
 
 function computeMultiplierResult(multiplierType, profile, knownRows, trackedRows) {
   const usingTracked = profile.track === true;
+  const emojiByName = new Map(
+    knownRows.map((row) => [
+      String(row?.name || "").toLowerCase(),
+      String(row?.emoji || ""),
+    ]),
+  );
   let entries = [];
 
   if (usingTracked) {
-    const emojiByName = new Map(
-      knownRows.map((row) => [String(row.name || ""), String(row.emoji || "")]),
-    );
     entries = trackedRows.map((row) => ({
       name: row.name,
       amount: Number(row.amount),
-      emoji: emojiByName.get(String(row.name || "")) || null,
+      emoji: emojiByName.get(String(row.name || "").toLowerCase()) || null,
       source: "tracked",
     }));
   } else {
@@ -404,6 +423,9 @@ function computeMultiplierResult(multiplierType, profile, knownRows, trackedRows
         entries.push({
           name: "Omega",
           amount: Number((1 + omega * 0.05).toFixed(2)),
+          emoji:
+            emojiByName.get("omega") ||
+            getMultiplierUiEmoji("dank_omega", null),
           source: "derived",
         });
       }
@@ -411,6 +433,9 @@ function computeMultiplierResult(multiplierType, profile, knownRows, trackedRows
         entries.push({
           name: "Prestige",
           amount: Number((1 + prestige * 0.012).toFixed(2)),
+          emoji:
+            emojiByName.get("prestige") ||
+            getMultiplierUiEmoji("dank_prestige", null),
           source: "derived",
         });
       }
@@ -422,6 +447,9 @@ function computeMultiplierResult(multiplierType, profile, knownRows, trackedRows
         entries.push({
           name: "Prestige",
           amount: prestige * 5,
+          emoji:
+            emojiByName.get("prestige") ||
+            getMultiplierUiEmoji("dank_prestige", null),
           source: "derived",
         });
       }
@@ -433,14 +461,33 @@ function computeMultiplierResult(multiplierType, profile, knownRows, trackedRows
   );
   if (!hasPremiumInEntries) {
     const premium = getPremiumConfig(profile.premium);
+    const premiumEmoji =
+      emojiByName.get("premium") ||
+      getPremiumTierEmoji(profile.premium) ||
+      null;
     if (multiplierType === "xp" && Number.isFinite(premium.xp) && premium.xp > 0) {
-      entries.push({ name: premium.name, amount: premium.xp, source: "premium" });
+      entries.push({
+        name: premium.name,
+        amount: premium.xp,
+        emoji: premiumEmoji,
+        source: "premium",
+      });
     }
     if (multiplierType === "coins" && Number.isFinite(premium.coins)) {
-      entries.push({ name: premium.name, amount: premium.coins, source: "premium" });
+      entries.push({
+        name: premium.name,
+        amount: premium.coins,
+        emoji: premiumEmoji,
+        source: "premium",
+      });
     }
     if (multiplierType === "luck" && Number.isFinite(premium.luck)) {
-      entries.push({ name: premium.name, amount: premium.luck, source: "premium" });
+      entries.push({
+        name: premium.name,
+        amount: premium.luck,
+        emoji: premiumEmoji,
+        source: "premium",
+      });
     }
   }
 
@@ -492,6 +539,13 @@ function parseEmojiValue(raw) {
   return null;
 }
 
+function applyButtonEmoji(button, emoji) {
+  if (emoji) {
+    button.setEmoji(emoji);
+  }
+  return button;
+}
+
 function buildMultiplierOptions(rows, selectedSet, multiplierType) {
   return rows.map((row) => {
     const amount = formatMultiplierAmount(multiplierType, row.amount);
@@ -511,12 +565,17 @@ function buildMultiplierOptions(rows, selectedSet, multiplierType) {
 }
 
 function buildPremiumOptions(selected) {
-  return PREMIUM_TIERS.map((tier) => ({
-    label: tier.label.slice(0, 100),
-    value: tier.value.slice(0, 100),
-    description: tier.description.slice(0, 100),
-    default: tier.value === selected,
-  }));
+  return PREMIUM_TIERS.map((tier) => {
+    const option = {
+      label: tier.label.slice(0, 100),
+      value: tier.value.slice(0, 100),
+      description: tier.description.slice(0, 100),
+      default: tier.value === selected,
+    };
+    const emoji = parseEmojiValue(getPremiumTierEmoji(tier.value));
+    if (emoji) option.emoji = emoji;
+    return option;
+  });
 }
 
 function buildMultiplierEditPayload(viewState) {
@@ -544,6 +603,9 @@ function buildMultiplierEditPayload(viewState) {
     [...selectedSet].some((name) => /prestige/i.test(String(name || ""))) ||
     trackedRows.some((entry) => /prestige/i.test(String(entry?.name || "")));
   const trackLabel = profile.track ? "On" : "Off";
+  const edit3Emoji = parseEmojiValue(getMultiplierUiEmoji("edit-3", ""));
+  const omegaTierEmoji = getMultiplierUiEmoji("dank_omega", "");
+  const prestigeTierEmoji = getMultiplierUiEmoji("dank_prestige", "");
 
   const typeLabel =
     viewState.type === "xp" ? "XP" : viewState.type === "coins" ? "Coins" : "Luck";
@@ -627,14 +689,17 @@ function buildMultiplierEditPayload(viewState) {
       new SectionBuilder()
         .addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            `Select your OMEGA tier\n-# Current: ${hasOmegaMultiplier ? "auto" : Math.max(0, Math.trunc(Number(profile.omega || 0)))}`,
+            `${omegaTierEmoji ? `${omegaTierEmoji} ` : ""}Select your OMEGA tier\n-# Current: ${hasOmegaMultiplier ? "auto" : Math.max(0, Math.trunc(Number(profile.omega || 0)))}`,
           ),
         )
         .setButtonAccessory(
-          new ButtonBuilder()
-            .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_omega:${viewState.token}`)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel("Set OMEGA"),
+          applyButtonEmoji(
+            new ButtonBuilder()
+              .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_omega:${viewState.token}`)
+              .setStyle(ButtonStyle.Secondary)
+              .setLabel("Set OMEGA"),
+            edit3Emoji,
+          ),
         ),
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -642,14 +707,17 @@ function buildMultiplierEditPayload(viewState) {
       new SectionBuilder()
         .addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            `Select your Prestige tier\n-# Current: ${hasPrestigeMultiplier ? "auto" : Math.max(0, Math.trunc(Number(profile.prestige || 0)))}`,
+            `${prestigeTierEmoji ? `${prestigeTierEmoji} ` : ""}Select your Prestige tier\n-# Current: ${hasPrestigeMultiplier ? "auto" : Math.max(0, Math.trunc(Number(profile.prestige || 0)))}`,
           ),
         )
         .setButtonAccessory(
-          new ButtonBuilder()
-            .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_prestige:${viewState.token}`)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel("Set Prestige"),
+          applyButtonEmoji(
+            new ButtonBuilder()
+              .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_prestige:${viewState.token}`)
+              .setStyle(ButtonStyle.Secondary)
+              .setLabel("Set Prestige"),
+            edit3Emoji,
+          ),
         ),
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -730,10 +798,20 @@ function buildMultiplierCalculatePayload(userId, multiplierType) {
   const result = computeMultiplierResult(multiplierType, profile, knownRows, trackedRows);
   const typeLabel =
     multiplierType === "xp" ? "XP" : multiplierType === "coins" ? "Coins" : "Luck";
+  const totalTypeEmoji =
+    multiplierType === "xp"
+      ? getMultiplierUiEmoji("dank_multiplier_xp", "")
+      : multiplierType === "coins"
+        ? getMultiplierUiEmoji("dank_multiplier_coins", "")
+        : getMultiplierUiEmoji("dank_multiplier_luck", "");
+  const editEmoji =
+    parseEmojiValue(global.db.getFeatherEmojiMarkdown("edit")) ||
+    parseEmojiValue(global.db.getFeatherEmojiMarkdown("edit-3"));
+  const trashEmoji = parseEmojiValue(global.db.getFeatherEmojiMarkdown("trash"));
 
   const totalLine =
     multiplierType === "xp"
-      ? `# Total: ${result.total.toFixed(2)}x`
+      ? `# Total: ${result.total.toFixed(2)}x${totalTypeEmoji ? ` ${totalTypeEmoji}` : ""}`
       : `# Total: +${result.total.toFixed(2)}%`;
   const entriesText = result.entries.length
     ? result.entries
@@ -768,14 +846,20 @@ function buildMultiplierCalculatePayload(userId, multiplierType) {
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:calc_edit:${multiplierType}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setLabel("Edit Multipliers"),
-        new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:calc_clean:${multiplierType}`)
-          .setStyle(ButtonStyle.Danger)
-          .setLabel("Clean all multipliers"),
+        applyButtonEmoji(
+          new ButtonBuilder()
+            .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:calc_edit:${multiplierType}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setLabel("Edit Multipliers"),
+          editEmoji,
+        ),
+        applyButtonEmoji(
+          new ButtonBuilder()
+            .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:calc_clean:${multiplierType}`)
+            .setStyle(ButtonStyle.Danger)
+            .setLabel("Clean all multipliers"),
+          trashEmoji,
+        ),
       ),
     );
 
@@ -942,9 +1026,10 @@ function buildOmegaPrestigePayload(calcType, amount, ownerUserId = null) {
               `# Prestige ${formatInt(n)} requirements:\n\n### * Coins: \`⏣ ${formatInt(coinsNormal)}\`\n-# * Coins: [${premiumEmoji}]: \`⏣ ${formatInt(coinsPremium)}\`\n### * Level: \`${formatInt(levelNormal)}\`\n-# * Level: [${premiumEmoji}]: \`${formatInt(levelPremium)}\``,
             ),
           )
-          .setThumbnailAccessory((thumb) =>
-            thumb.setURL("https://cdn.discordapp.com/emojis/573151130154958851.webp"),
-          ),
+          .setThumbnailAccessory((thumb) => {
+            thumb.setURL("https://cdn.discordapp.com/emojis/573151130154958851.webp");
+            return thumb;
+          }),
       )
       .addSectionComponents(
         new SectionBuilder()
@@ -983,9 +1068,10 @@ function buildOmegaPrestigePayload(calcType, amount, ownerUserId = null) {
             `# Omega ${formatInt(omega)} requirements:\n\n### * Prestige: \`${formatInt(prestigeReq)}\`\n### * Coins: \`⏣ ${formatInt(coinsReq)}\``,
           ),
         )
-        .setThumbnailAccessory((thumb) =>
-          thumb.setURL("https://cdn.discordapp.com/emojis/901598556790587453.webp"),
-        ),
+        .setThumbnailAccessory((thumb) => {
+          thumb.setURL("https://cdn.discordapp.com/emojis/901598556790587453.webp");
+          return thumb;
+        }),
     )
     .addSectionComponents(
       new SectionBuilder()

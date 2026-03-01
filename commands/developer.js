@@ -48,6 +48,7 @@ const DANK_MULTIPLIER_EDIT_EMOJI_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankmultis:
 const DANK_MULTIPLIER_EDIT_DESCRIPTION_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankmultis:edit_description_modal`;
 const DANK_MULTIPLIER_EMOJI_INPUT_ID = "multi_emoji";
 const DANK_MULTIPLIER_DESCRIPTION_INPUT_ID = "multi_description";
+const KARUTA_RECOG_STATE_TYPE = "karuta_recognition_settings";
 
 function isDevAllowed(userId) {
   const owners = Array.isArray(global.ownerIds) ? global.ownerIds : [];
@@ -107,6 +108,40 @@ function parseEmojiValue(raw) {
   }
 
   if (text.length <= 8) return { name: text };
+  return null;
+}
+
+function resolveNamedEmojiMarkdown(rawInput) {
+  const text = String(rawInput || "").trim();
+  if (!text) return null;
+
+  // Keep valid emoji input as-is.
+  if (parseEmojiValue(text)) return text;
+
+  const normalized = text
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/^_+|_+$/g, "");
+
+  if (!normalized) return null;
+
+  const candidates = [...new Set([normalized, `dank_${normalized}`])];
+  for (const candidate of candidates) {
+    const row = global.db.safeQuery(
+      `
+      SELECT markdown
+      FROM feather_emojis
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+      [candidate],
+    )?.[0];
+    if (row?.markdown) {
+      return String(row.markdown).trim();
+    }
+  }
+
   return null;
 }
 
@@ -810,7 +845,7 @@ async function handleDevButton(interaction) {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId(DANK_MULTIPLIER_EMOJI_INPUT_ID)
-            .setLabel("Emoji markdown/unicode (blank to clear)")
+            .setLabel("Emoji markdown/unicode/name (blank to clear)")
             .setStyle(TextInputStyle.Short)
             .setRequired(false)
             .setValue(String(selected.emoji || "")),
@@ -1090,9 +1125,12 @@ async function handleDevModal(interaction) {
       return;
     }
 
-    const emojiValue = interaction.fields
+    const emojiInput = interaction.fields
       .getTextInputValue(DANK_MULTIPLIER_EMOJI_INPUT_ID)
       .trim();
+    const emojiValue = emojiInput
+      ? resolveNamedEmojiMarkdown(emojiInput) || emojiInput
+      : null;
     const selected = getDankMultiplierMeta(state.type, state.name);
     if (!selected) {
       await interaction.reply({
@@ -1166,6 +1204,7 @@ async function handleDevModal(interaction) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("dev")
+    .setContexts("PrivateChannel", "Guild", "BotDM")
     .setDescription("Developer commands")
     .addSubcommand((subcommand) =>
       subcommand.setName("eval").setDescription("Evaluate code"),
@@ -1197,6 +1236,27 @@ module.exports = {
           subcommand
             .setName("dank-options")
             .setDescription("Panel to edit dank stats select option meta"),
+        ),
+    )
+    .addSubcommandGroup((subcommandGroup) =>
+      subcommandGroup
+        .setName("karuta")
+        .setDescription("Karuta developer controls")
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("changerecog")
+            .setDescription("Change Karuta recognition handler")
+            .addStringOption((option) =>
+              option
+                .setName("recognition")
+                .setDescription("Recognition mode")
+                .setRequired(true)
+                .addChoices(
+                  { name: "Off", value: "off" },
+                  { name: "Tesseract", value: "tesseract" },
+                  { name: "Gemma3", value: "gemma3" },
+                ),
+            ),
         ),
     ),
   async execute(interaction) {
@@ -1255,6 +1315,33 @@ module.exports = {
       }
 
       await interaction.reply(payload);
+      return;
+    }
+
+    if (group === "karuta" && subcommand === "changerecog") {
+      const mode = String(interaction.options.getString("recognition", true) || "")
+        .trim()
+        .toLowerCase();
+      const validModes = new Set(["off", "tesseract", "gemma3"]);
+      if (!validModes.has(mode)) {
+        await interaction.reply({
+          content: "Invalid recognition mode.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      global.db.upsertState(
+        KARUTA_RECOG_STATE_TYPE,
+        JSON.stringify({ mode }),
+        "global",
+        true,
+      );
+
+      await interaction.reply({
+        content: `Karuta recognition mode set to: \`${mode}\``,
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
 

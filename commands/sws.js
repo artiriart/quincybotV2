@@ -35,18 +35,6 @@ module.exports = {
             .setRequired(true)
             .setAutocomplete(true),
         ),
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("faq")
-        .setDescription("Shows gameplay related topics about 7w7")
-        .addStringOption((option) =>
-          option
-            .setName("topic")
-            .setDescription("The topic to get info about")
-            .setRequired(true)
-            .setAutocomplete(true),
-        ),
     ),
   async autocomplete(interaction) {
     const subcommand = interaction.options.getSubcommand(false);
@@ -139,11 +127,14 @@ module.exports = {
       ),
     );
 
-    if (item.emoji_id) {
-      section.setThumbnailAccessory((thumb) =>
-        thumb.setURL(`https://cdn.discordapp.com/emojis/${item.emoji_id}.webp`),
+    section.setThumbnailAccessory((thumb) => {
+      thumb.setURL(
+        item.emoji_id
+          ? `https://cdn.discordapp.com/emojis/${item.emoji_id}.webp`
+          : "https://cdn.discordapp.com/embed/avatars/0.png",
       );
-    }
+      return thumb;
+    });
 
     container.addSectionComponents(section);
 

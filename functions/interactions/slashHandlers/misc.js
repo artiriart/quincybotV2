@@ -50,6 +50,7 @@ const DANK_TOGGLES = [
 const KARUTA_TOGGLES = [
   { key: "karuta_visit_reminders", label: "Visit Reminders" },
 ];
+const KARUTA_GUILD_DROP_CALC_STATE_TYPE = "karuta_drop_calculation_enabled";
 
 const ANIGAME_TOGGLES = [
   { key: "anigame_card_stat_tracking", label: "Card Stat tracking", defaultOn: true },
@@ -177,6 +178,19 @@ function setGuildAutodelete(guildId, selectedRarities) {
       [guildId, rarity],
     );
   }
+}
+
+function getGuildStateToggle(guildId, type, defaultValue = true) {
+  if (!guildId || !type) return defaultValue;
+  const raw = global.db.getState(type, guildId);
+  if (raw == null) return defaultValue;
+  const text = String(raw).trim().toLowerCase();
+  return !(text === "0" || text === "false" || text === "off" || text === "disabled");
+}
+
+function setGuildStateToggle(guildId, type, enabled) {
+  if (!guildId || !type) return;
+  global.db.upsertState(type, enabled ? "1" : "0", guildId, true);
 }
 
 function getToggleEmoji(enabled) {
@@ -315,6 +329,34 @@ function buildKarutaContainer(interaction) {
   );
 
   addToggleSections(container, interaction, "karuta", KARUTA_TOGGLES);
+
+  const isAdmin = Boolean(
+    interaction.guildId &&
+      interaction.memberPermissions?.has(PermissionFlagsBits.Administrator),
+  );
+  if (isAdmin) {
+    const enabled = getGuildStateToggle(
+      interaction.guildId,
+      KARUTA_GUILD_DROP_CALC_STATE_TYPE,
+      true,
+    );
+    container
+      .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+      .addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+              `### Karuta Drop Calculation\n-# Currently: ${getToggleEmoji(enabled)} ${enabled ? "On" : "Off"}`,
+            ),
+          )
+          .setButtonAccessory(
+            new ButtonBuilder()
+              .setCustomId("settings:guildtoggle:karuta:dropcalc")
+              .setLabel("Toggle")
+              .setStyle(enabled ? ButtonStyle.Danger : ButtonStyle.Success),
+          ),
+      );
+  }
   return container;
 }
 
@@ -435,6 +477,33 @@ async function handleSettingsButton(interaction) {
     }
 
     await interaction.showModal(modal);
+    return;
+  }
+
+  if (action === "guildtoggle" && category === "karuta" && key === "dropcalc") {
+    const isAdmin = Boolean(
+      interaction.guildId &&
+        interaction.memberPermissions?.has(PermissionFlagsBits.Administrator),
+    );
+    if (!isAdmin) {
+      await interaction.reply({
+        content: "Only administrators can edit Karuta guild settings.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const current = getGuildStateToggle(
+      interaction.guildId,
+      KARUTA_GUILD_DROP_CALC_STATE_TYPE,
+      true,
+    );
+    setGuildStateToggle(
+      interaction.guildId,
+      KARUTA_GUILD_DROP_CALC_STATE_TYPE,
+      !current,
+    );
+    await interaction.update(buildSettingsPayload(interaction, "karuta"));
   }
 }
 
