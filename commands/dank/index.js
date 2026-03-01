@@ -5,6 +5,8 @@ const {
   runDankMultiplierCalculate,
   runDankOmegaPrestigeCalculate,
 } = require("./multipliers");
+const { runDankNuke } = require("./nuke");
+const { runDankItemCalc } = require("./itemcalc");
 
 async function runDank(interaction) {
   if (!interaction?.isChatInputCommand?.()) return;
@@ -14,6 +16,16 @@ async function runDank(interaction) {
 
   if (subcommand === "stats") {
     await runDankStats(interaction);
+    return;
+  }
+
+  if (subcommand === "nuke") {
+    await runDankNuke(interaction);
+    return;
+  }
+
+  if (subcommand === "itemcalc") {
+    await runDankItemCalc(interaction);
     return;
   }
 

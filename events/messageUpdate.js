@@ -3,6 +3,9 @@ const handleMessage = require("../functions/handleMessage");
 module.exports = {
   name: "messageUpdate",
   async execute(oldMessage, newMessage) {
+    if (oldMessage?.editedTimestamp === newMessage?.editedTimestamp) {
+      return;
+    }
     if (newMessage?.partial) {
       try {
         await newMessage.fetch();
@@ -10,7 +13,6 @@ module.exports = {
         return;
       }
     }
-
 
     await handleMessage(newMessage, oldMessage).catch((error) => {
       console.error("messageUpdate handler failed:", error);

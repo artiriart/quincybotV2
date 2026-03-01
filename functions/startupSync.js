@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const sharp = require("sharp");
+const colors = require("colors");
 
 // todo: index dank memer fishing related items. Default value is Token calculation copied from V2, changable trough dev command
 // todo: after this we get rid of the customDankItemValues.json file. Fish Endpoint: https://dankmemer.lol/api/bot/fish/data [data.baits.items, data.tools.items]
@@ -33,6 +34,17 @@ const DANK_CUSTOM_ITEM_IMAGES = {
 };
 
 let startupSyncPromise = null;
+
+function colorSyncLabel(label) {
+  return colors.bold.cyan(label);
+}
+
+function colorMetric(value, tone = "green") {
+  const text = String(value);
+  if (tone === "yellow") return colors.bold.yellow(text);
+  if (tone === "magenta") return colors.bold.magenta(text);
+  return colors.bold.green(text);
+}
 
 function toInt(value, fallback = 0) {
   if (value == null || value === "") return fallback;
@@ -481,7 +493,7 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
   }
 
   console.log(
-    `Dank sync complete: ${byName.size} items upserted, ${createdEmojiCount} emojis created, ${indexedEmojiCount} emoji refs indexed.`,
+    `${colorSyncLabel("Dank sync complete:")} ${colorMetric(byName.size)} items upserted, ${colorMetric(createdEmojiCount, "yellow")} emojis created, ${colorMetric(indexedEmojiCount, "magenta")} emoji refs indexed.`,
   );
 }
 
@@ -541,7 +553,9 @@ async function syncFeatherEmojis(sqlite, existingEmojis) {
     indexed += 1;
   }
 
-  console.log(`Feather sync complete: ${indexed} indexed, ${created} created.`);
+  console.log(
+    `${colorSyncLabel("Feather sync complete:")} ${colorMetric(indexed)} indexed, ${colorMetric(created, "yellow")} created.`,
+  );
 }
 
 async function syncDecoEmojis(sqlite, existingEmojis) {
@@ -596,7 +610,9 @@ async function syncDecoEmojis(sqlite, existingEmojis) {
     indexed += 1;
   }
 
-  console.log(`Deco emoji sync complete: ${indexed} indexed, ${created} created.`);
+  console.log(
+    `${colorSyncLabel("Deco emoji sync complete:")} ${colorMetric(indexed)} indexed, ${colorMetric(created, "yellow")} created.`,
+  );
 }
 
 async function syncIzziCards(sqlite) {
@@ -636,7 +652,9 @@ async function syncIzziCards(sqlite) {
     );
   }
 
-  console.log(`Izzi card sync complete: ${cards.length} rows upserted.`);
+  console.log(
+    `${colorSyncLabel("Izzi card sync complete:")} ${colorMetric(cards.length)} rows upserted.`,
+  );
 }
 
 async function syncIzziAbilities(sqlite) {
@@ -659,7 +677,7 @@ async function syncIzziAbilities(sqlite) {
   }
 
   console.log(
-    `Izzi abilities sync complete: ${abilities.length} rows upserted.`,
+    `${colorSyncLabel("Izzi abilities sync complete:")} ${colorMetric(abilities.length)} rows upserted.`,
   );
 }
 
@@ -691,7 +709,9 @@ async function syncIzziItems(sqlite) {
     );
   }
 
-  console.log(`Izzi items sync complete: ${items.length} rows upserted.`);
+  console.log(
+    `${colorSyncLabel("Izzi items sync complete:")} ${colorMetric(items.length)} rows upserted.`,
+  );
 }
 
 function parseGvizJson(text) {
@@ -812,7 +832,9 @@ async function syncAnigameCards(sqlite) {
     count += 1;
   }
 
-  console.log(`Anigame card sync complete: ${count} rows upserted.`);
+  console.log(
+    `${colorSyncLabel("Anigame card sync complete:")} ${colorMetric(count)} rows upserted.`,
+  );
 }
 
 
@@ -849,7 +871,7 @@ async function runStartupSync() {
       }
     }
 
-    console.log("Startup sync complete.");
+    console.log(colors.rainbow(colors.bold("Startup sync complete.")));
   })();
 
   return startupSyncPromise;

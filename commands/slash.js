@@ -15,6 +15,7 @@ module.exports = {
           .setRequired(true),
       ),
     new SlashCommandBuilder().setName("help").setDescription("Help command"),
+    new SlashCommandBuilder().setName("repo").setDescription("Project repository info"),
     new SlashCommandBuilder()
       .setName("ping")
       .setDescription("Bot latency & server information"),
@@ -45,6 +46,23 @@ module.exports = {
     new SlashCommandBuilder()
       .setName("settings")
       .setDescription("toggle settings"),
+    new SlashCommandBuilder()
+      .setName("reminder")
+      .setDescription("Create a personal reminder")
+      .addIntegerOption((option) =>
+        option
+          .setName("duration")
+          .setDescription("Reminder duration in minutes (default: 5)")
+          .setMinValue(1)
+          .setMaxValue(10080)
+          .setRequired(false),
+      )
+      .addStringOption((option) =>
+        option
+          .setName("information")
+          .setDescription("Reminder text (default: Custom Reminder)")
+          .setRequired(false),
+      ),
   ],
   async execute(interaction, client) {
     if (!interaction?.isChatInputCommand?.()) return;

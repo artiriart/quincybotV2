@@ -12,6 +12,7 @@ require("dotenv").config();
 
 const database = require("./database.js");
 const { runStartupSync } = require("./functions/startupSync");
+const handleMessage = require("./functions/handleMessage");
 const {
   loadSlashCommands,
   loadEvents,
@@ -78,6 +79,20 @@ global.getUserIdFromMention = (text) => {
   return match ? match[1] : null;
 };
 
+const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
+let stateSweeperInterval = null;
+
+function startStateSweeper() {
+  if (stateSweeperInterval) return;
+  stateSweeperInterval = setInterval(() => {
+    try {
+      global.db.sweepNonPermanentStates?.();
+    } catch (error) {
+      console.error("State sweeper failed:", error);
+    }
+  }, WEEKLY_MS);
+}
+
 client.on("error", (error) => {
   console.error("Discord client error:", error);
 });
@@ -86,6 +101,11 @@ client.once(Events.ClientReady, async (readyClient) => {
   try {
     await registerSlashCommands(readyClient);
     await runStartupSync();
+    handleMessage.startReminderPolling?.();
+    readyClient.user?.setPresence({
+      activities: [{ name: "Quincybot V2!!! better ig..." }],
+      status: "online",
+    });
     console.log(`Logged in as ${readyClient.user.username}.`.rainbow);
   } catch (error) {
     console.error("Startup initialization failed:", error);
@@ -99,8 +119,10 @@ async function start() {
   }
 
   database.initDatabase();
+  database.sweepNonPermanentStates?.();
   const events = await loadEvents(client);
   const slashes = await loadSlashCommands(client);
+  startStateSweeper();
   await client.login(token);
   console.log(`Loaded ${events} events and ${slashes} slash commands.`.rainbow);
 }

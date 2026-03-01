@@ -520,7 +520,17 @@ function createReminder(
   information = { command: "", information: "Custom Reminder" },
   dm = false,
 ) {
-  safeQuery(
+  const payload = [
+    user_id,
+    channel.guild?.id ?? null,
+    channel.id,
+    type,
+    JSON.stringify(information),
+    Date.now() + minutes * 60000,
+    dm ? 1 : 0,
+  ];
+
+  const result = safeQuery(
     `
     INSERT INTO reminders (
       user_id,
@@ -538,16 +548,31 @@ function createReminder(
       end = excluded.end,
       dm = excluded.dm
     `,
-    [
-      user_id,
-      channel.guild?.id ?? null,
-      channel.id,
-      type,
-      JSON.stringify(information),
-      Date.now() + minutes * 60000,
-      dm ? 1 : 0,
-    ],
+    payload,
+    null,
   );
+}
+
+/**
+ * Remove all non-permanent state rows.
+ *
+ * @returns {{ changes: number } | null}
+ */
+function sweepNonPermanentStates() {
+  const result = safeQuery(
+    `
+    DELETE FROM states
+    WHERE isPermanent = 0
+    `,
+    [],
+    null,
+  );
+
+  const changes = Number(result?.changes || 0);
+  console.log(
+    `${colors.bold.cyan("[states]")} ${colors.bold.white("swept non-permanent rows:")} ${colors.bold.yellow(String(changes))}`,
+  );
+  return result || null;
 }
 
 /**
@@ -589,4 +614,5 @@ module.exports = {
   getDankItemEmojiMarkdown,
   getFeatherEmojiMarkdown,
   createReminder,
+  sweepNonPermanentStates,
 };

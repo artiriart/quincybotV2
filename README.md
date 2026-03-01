@@ -1,6 +1,24 @@
 # QuincybotV2
 
-Discord utility bot with multi-bot parsing, reminders, and synced data indexes.
+Discord utility bot focused on multi-bot parsing, reminders, calculators, and data indexing.
+
+## What The Bot Does
+
+- Tracks/aggregates data from multiple bots (`Dank`, `Anigame`, `Karuta`, `Izzi`, `7w7`).
+- Runs startup sync for external datasets and emoji indexing (Dank items, Feather icons, Deco emojis, Izzi, Anigame).
+- Provides configurable user/guild settings via `/settings`.
+- Supports reminder workflows:
+  - bot-driven reminders from parsed messages
+  - custom reminders via `/reminder`
+  - reminder poller with snooze/delete actions
+- Provides utility commands:
+  - `/help` (curated + filter dropdown)
+  - `/repo` (quick GitHub section + button)
+  - `/calculator`, `/dice`, `/ping`, `/invite`
+- Provides Dank utilities:
+  - `/dank stats`, `/dank itemcalc`, `/dank nuke`
+  - multiplier editors/calculators and omega/prestige calculator
+- Provides card/reminder utilities for Anigame and Karuta, plus Izzi shard lobby parsing.
 
 ## Requirements
 
@@ -34,16 +52,20 @@ KARUTA_RECOG=gemma
 node index.js
 ```
 
-On startup the bot initializes and syncs SQLite schema in `database.sqlite`.
-
 ## Project Layout
 
-- `index.js`: client bootstrap and global setup.
+- `index.js`: client bootstrap, startup sync, status/pollers.
 - `database.js`: SQLite schema + query helpers.
-- `functions/`: handlers and startup sync logic.
 - `events/`: Discord event entrypoints.
+- `functions/`: routing, bot message handlers, interaction handlers, startup sync.
 - `commands/`: slash/prefix command modules.
-- `utils/`: shared helper utilities.
+- `utils/`: shared helpers.
+
+## Contributing
+
+If you want to add more features or support more bots, PRs are welcome.
+
+I review and accept practical, clean additions that fit the existing command/handler structure.
 
 ## External Resources
 

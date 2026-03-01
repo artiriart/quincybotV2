@@ -576,56 +576,186 @@ async function runPing(interaction) {
   });
 }
 
+const HELP_CATEGORY_OPTIONS = [
+  { label: "General", value: "general" },
+  { label: "Dank", value: "dank" },
+  { label: "Anigame", value: "anigame" },
+  { label: "Izzi", value: "izzi" },
+  { label: "Karuta", value: "karuta" },
+  { label: "7w7", value: "7w7" },
+  { label: "Lab", value: "lab" },
+  { label: "Utilities", value: "utils" },
+  { label: "Roadmap", value: "roadmap" },
+];
+
+const HELP_CONTENT = {
+  general: [
+    "### General",
+    "* `/help` curated command index with category filter",
+    "* `/repo` repository quick access",
+    "* `/ping` latency check",
+    "* `/invite` bot invite link",
+    "* `/calculator` mobile-style math calculator",
+    "* `/dice` configurable dice roller",
+    "* `/settings` toggles + notifier settings",
+    "* `/reminder` custom reminder creation",
+  ].join("\n"),
+  dank: [
+    "### Dank",
+    "* `/dank stats` market-aware tracked loot viewer",
+    "* `/dank itemcalc` bulk item market calculator",
+    "* `/dank nuke` nuke session stats + share/donate helper",
+    "* `/dank multiplier edit` profile editor",
+    "* `/dank calculate xp|coins|luck|level|omega-prestige` calculators",
+    "-# Includes multiplier reward indexing and expandable multiplier section in stats.",
+  ].join("\n"),
+  anigame: [
+    "### Anigame",
+    "* `/anigame reminders list` panel view",
+    "* `/anigame reminders set` add/remove reminder flow",
+    "* Clan + Fragment shop detection with DM notifier",
+    "* Card claim rarity tracking",
+    "-# Raidlist and bulksell operations are integrated as completed pipeline tasks.",
+  ].join("\n"),
+  izzi: [
+    "### Izzi",
+    "* Card claim rarity tracking",
+    "* Event shard notifier threshold setting",
+    "* Event Lobbies parser with shard threshold filtering",
+    "* Pagination-aware lobby ID collector/updater",
+    "-# Raidlist and crate extraction helper are integrated as completed pipeline tasks.",
+  ].join("\n"),
+  karuta: [
+    "### Karuta",
+    "* Wishlist manager by series",
+    "* OCR test command with recognition mode support",
+    "* Recognition mode switch (off / tesseract / gemma3)",
+    "* Drop recognition and wishlist ping calculation",
+    "* Visit reminder integration",
+  ].join("\n"),
+  "7w7": [
+    "### 7w7",
+    "* Wife/Partner/Gem reminders",
+    "* Raid ready notifier",
+    "* Guild autodelete controls by rarity",
+    "* Perk cooldown tracking + reminder scheduling",
+    "-# Preset viewer, raid help dump review, and ticket refill notifier are completed in active workflow.",
+  ].join("\n"),
+  lab: [
+    "### Lab",
+    "* Core module wiring available",
+    "-# Module reconstruction, V2 menus, and improved home UI are completed in active workflow.",
+  ].join("\n"),
+  utils: [
+    "### Utilities",
+    "* Reminder poller + snooze/delete interactions",
+    "* Weekly sweeper for non-permanent state rows",
+    "* Startup sync indexing for Dank/Feather/Deco/Izzi/Anigame",
+    "* Bot status preset and startup presence",
+    "-# DM user utility and advanced dice flow are completed in active workflow.",
+  ].join("\n"),
+  roadmap: [
+    "### Roadmap (Delivered)",
+    "* File split + message router migration completed",
+    "* Weekly bundle reminder completed",
+    "* Item calculator completed",
+    "* Stats multiplier expansion completed",
+    "* Repo/help/readme curation completed",
+  ].join("\n"),
+};
+
+function buildHelpPayload(selected = "general", ephemeral = true) {
+  const category = HELP_CONTENT[selected] ? selected : "general";
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("help:category")
+    .setPlaceholder("Filter help")
+    .addOptions(
+      HELP_CATEGORY_OPTIONS.map((opt) => ({
+        label: opt.label,
+        value: opt.value,
+        default: opt.value === category,
+      })),
+    );
+
+  const container = new ContainerBuilder()
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent("# Quincybot V2 Help"))
+    .addActionRowComponents(new ActionRowBuilder().addComponents(menu))
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `${HELP_CONTENT[category]}\n\n-# Maintained by <@734844583778975845>`,
+      ),
+    );
+
+  return {
+    content: "",
+    components: [container],
+    flags: (ephemeral ? MessageFlags.Ephemeral : 0) | MessageFlags.IsComponentsV2,
+  };
+}
+
+function sanitizeReminderInformation(raw) {
+  const strippedMentions = String(raw || "")
+    .replace(/<@!?&?\d+>/g, " ")
+    .replace(/@everyone|@here/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const safe = strippedMentions
+    .replace(/[^a-zA-Z0-9 .,!?:;()'"\/+\-_#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return safe || "Custom Reminder";
+}
+
 async function runHelp(interaction) {
-  const specialHelpUsers = new Set([
-    "172571295077105664",
-    "804065926025838642",
-    "1357140733022175398",
-  ]);
+  await interaction.reply(buildHelpPayload("general", true));
+}
 
-  if (specialHelpUsers.has(interaction.user.id)) {
-    await interaction.reply({
-      content: "",
-      components: [
-        new ContainerBuilder()
-          .addMediaGalleryComponents(
-            new MediaGalleryBuilder().addItems(
-              new MediaGalleryItemBuilder().setURL(
-                "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMWhseGIwM3puMmtmaWx0dm9iazBmamJndGp2bDlna3BpcWM1NWZsZSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/D63HGAzG15LQrjBPRE/giphy.gif",
-              ),
-            ),
-          )
-          .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(`## Dear Melmsie,
-
-It has come to my attention that you executed the sacred /help command on my bot.
-
-As a Dank bot developer, this action has automatically triggered the Ultra Developer Surveillance System™. Congratulations. You are now being respectfully observed.
-
-The penguins have been notified.
-The toaster is buffering.
-Protocol 7 has been replaced with a slightly annoyed raccoon.
-If the moon starts lagging, that was not me. Probably.
-The spaghetti committee voted 3-2 in your favor.
-
-If you would like to discuss anything, suggest improvements, roast the code, or demand I refactor something at 3am, please DM <@734844583778975845>. Feedback, chaos, and constructive criticism are all welcome.
-
-If this was accidental, simply blink twice at your monitor. The system understands.
-
-Kind regards,
-artiriart
-Chief Executive Button Listener
-
--# P.S: can i have melmsie banana (the item of course)`),
-          ),
-      ],
-      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-    });
-    return;
-  }
+async function runRepo(interaction) {
+  const repoUrl = "https://github.com/artiriart/quincybotV2";
+  const container = new ContainerBuilder().addSectionComponents(
+    new SectionBuilder()
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          "### Quincybot V2 Repository\n-# Top 5 MIT license projects.",
+        ),
+      )
+      .setButtonAccessory(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setURL(repoUrl)
+          .setLabel("Open GitHub"),
+      ),
+  );
 
   await interaction.reply({
-    content: "Use `/calculator prompt:<equation>` to evaluate expressions.",
+    content: "",
+    components: [container],
+    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+  });
+}
+
+async function runReminder(interaction) {
+  const duration = interaction.options.getInteger("duration") || 5;
+  const infoRaw = interaction.options.getString("information") || "Custom Reminder";
+  const information = sanitizeReminderInformation(infoRaw);
+
+  global.db.createReminder(
+    interaction.user.id,
+    interaction.channel,
+    duration,
+    "Custom Reminder",
+    {
+      command: "",
+      information,
+    },
+    false,
+  );
+
+  await interaction.reply({
+    content: `Reminder created for ${duration} minute(s): ${information}`,
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -679,6 +809,12 @@ async function runSettings(interaction) {
   await interaction.reply(buildSettingsPayload(interaction, null, true));
 }
 
+async function handleHelpSelect(interaction) {
+  if (interaction.customId !== "help:category") return;
+  const selected = String(interaction.values?.[0] || "general");
+  await interaction.update(buildHelpPayload(selected, true));
+}
+
 if (!buttonHandlers.has("settings")) {
   buttonHandlers.set("settings", handleSettingsButton);
 }
@@ -691,10 +827,16 @@ if (!modalHandlers.has("settings")) {
   modalHandlers.set("settings", handleSettingsModal);
 }
 
+if (!selectMenuHandlers.has("help")) {
+  selectMenuHandlers.set("help", handleHelpSelect);
+}
+
 module.exports = {
   runPing,
   runHelp,
+  runRepo,
   runInvite,
   runDice,
+  runReminder,
   runSettings,
 };
