@@ -237,15 +237,14 @@ async function fetchAndCacheChances({
 
   const { locations, tools } = await getLocationsAndTools();
   const upsert = `INSERT INTO dank_fish_mythical_chances (
-      creature_id, location_id, tool_id, bait_id, chance, fail_chance, npc_chance, hour_utc, is_tuesday, last_updated
+      creature_id, location_id, tool_id, bait_id, chance, fail_chance, npc_chance, hour_utc, is_tuesday
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(creature_id, location_id, tool_id, bait_id, hour_utc, is_tuesday)
     DO UPDATE SET
       chance = excluded.chance,
       fail_chance = excluded.fail_chance,
-      npc_chance = excluded.npc_chance,
-      last_updated = CURRENT_TIMESTAMP`;
+      npc_chance = excluded.npc_chance`;
 
   const targetSet = new Set(ids);
   const totalSteps = ids.length * locations.length * tools.length;
@@ -466,11 +465,8 @@ async function ensureStartupMythicalChancesIndex({ onlyIfMissing = true } = {}) 
   if (onlyIfMissing) {
     const [row] = await global.db.safeQuery(
       `SELECT COUNT(*) AS count
-       FROM dank_fish_mythical_chances
-       WHERE hour_utc = ?
-         AND is_tuesday IN (0,1)
-         AND bait_id IN ('none','lucky-bait')`,
-      [currentHour],
+       FROM dank_fish_mythical_chances`,
+      [],
       [],
     );
     if (Number(row?.count || 0) > 0) {
@@ -488,14 +484,24 @@ async function ensureStartupMythicalChancesIndex({ onlyIfMissing = true } = {}) 
   const creatureIds = mythicals.map((r) => String(r.creature_id)).filter(Boolean);
   if (!creatureIds.length) return;
 
+  const orderedHours = [];
+  for (let h = currentHour; h < 24; h += 1) orderedHours.push(h);
+  for (let h = 0; h < currentHour; h += 1) orderedHours.push(h);
+
+  console.log(
+    `[FishSimulator] Startup cache bootstrap: ${creatureIds.length} mythicals, ${orderedHours.length} hours, lucky+none baits, Tue true/false.`,
+  );
+
   for (const tuesday of requiredTuesdayStates) {
     for (const baitId of requiredBaits) {
-      await fetchAndCacheChances({
-        creatureIds,
-        luckyBaitEnabled: baitId === "lucky-bait",
-        isTuesday: tuesday,
-        currentHour,
-      });
+      for (const hour of orderedHours) {
+        await fetchAndCacheChances({
+          creatureIds,
+          luckyBaitEnabled: baitId === "lucky-bait",
+          isTuesday: tuesday,
+          currentHour: hour,
+        });
+      }
     }
   }
 }

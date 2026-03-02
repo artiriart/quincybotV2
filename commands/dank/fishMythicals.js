@@ -109,7 +109,7 @@ async function buildMythicalPayload(userId, options = {}) {
       new TextDisplayBuilder().setContent(
         bestLines.length
           ? `**Best chances (UTC hour: ${utcHour}):**\n${bestLines.join("\n")}`
-          : `**Best chances (UTC hour: ${utcHour}):**\n- No cached chances. Click refresh.`,
+          : `**Best chances (UTC hour: ${utcHour}):**\n- No cached chances yet. Startup cache is still warming up.`,
       ),
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -182,7 +182,7 @@ async function handleViewAll(interaction) {
       components: [
         new ContainerBuilder().addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            "No cached chances yet. Use refresh and try again.",
+            "No cached chances yet. Startup cache is still warming up.",
           ),
         ),
       ],

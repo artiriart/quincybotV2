@@ -71,7 +71,6 @@ const schema = {
     chance: "REAL DEFAULT 0",
     fail_chance: "REAL DEFAULT 0",
     npc_chance: "REAL DEFAULT 0",
-    last_updated: "TEXT DEFAULT CURRENT_TIMESTAMP",
     _constraint:
       "PRIMARY KEY (creature_id, location_id, tool_id, bait_id, hour_utc, is_tuesday)",
   },
