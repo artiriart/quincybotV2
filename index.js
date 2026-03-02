@@ -12,6 +12,10 @@ require("dotenv").config();
 
 const database = require("./database.js");
 const { runStartupSync } = require("./functions/startupSync");
+let startKarutaMysqlSync = null;
+try {
+  ({ startKarutaMysqlSync } = require("./functions/karutaMysqlSync"));
+} catch {}
 const handleMessage = require("./functions/handleMessage");
 const {
   loadSlashCommands,
@@ -42,7 +46,12 @@ const client = Object.assign(
       GatewayIntentBits.DirectMessageReactions,
       GatewayIntentBits.MessageContent,
     ],
-    partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
+    partials: [
+      Partials.Channel,
+      Partials.Message,
+      Partials.Reaction,
+      Partials.User,
+    ],
     makeCache: Options.cacheWithLimits({
       ...Options.DefaultMakeCacheSettings,
       GuildMemberManager: 0,
@@ -103,6 +112,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   try {
     await registerSlashCommands(readyClient);
     await runStartupSync();
+    if (typeof startKarutaMysqlSync === "function") {
+      await startKarutaMysqlSync();
+    }
     handleMessage.startReminderPolling?.();
     readyClient.user?.setPresence({
       activities: [{ name: "Quincybot V2!!! better ig..." }],

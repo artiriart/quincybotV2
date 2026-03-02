@@ -2,5 +2,6 @@ quincybotV2.code-workspace
 node_modules
 package-lock.json
 .env
+functions/karutaMysqlSync.js
 database.sqlite*
 AI_ASSISTANT_GUIDE.txt

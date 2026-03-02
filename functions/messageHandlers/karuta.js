@@ -10,6 +10,10 @@ const {
 const { extractUserFromMention } = require("../handleMessageHelpers");
 const { recognizeKarutaCardsFromUrl } = require("../karutaOcr");
 const { recognizeKarutaCardsWithGemmaFromUrl } = require("../karutaGemma");
+let syncKarutaCardToMysqlIfNew = null;
+try {
+  ({ syncKarutaCardToMysqlIfNew } = require("../karutaMysqlSync"));
+} catch {}
 
 const KARUTA_RECOG_STATE_TYPE = "karuta_recognition_settings";
 const KARUTA_GUILD_DROP_CALC_STATE_TYPE = "karuta_drop_calculation_enabled";
@@ -203,6 +207,17 @@ async function handleKarutaMessage(message, settings) {
     const series = normalizeKarutaKey(displaySeries);
     if (!name || !series) return;
 
+    if (typeof syncKarutaCardToMysqlIfNew === "function") {
+      syncKarutaCardToMysqlIfNew({
+        name,
+        series,
+        displayName,
+        displaySeries,
+        wishlist,
+        cardUrl,
+      });
+    }
+
     global.db.safeQuery(
       `
       INSERT INTO karuta_cards (name, series, display_name, display_series, wishlist, card_url)
@@ -225,6 +240,7 @@ async function handleKarutaMessage(message, settings) {
       `,
       [name, series, displayName, displaySeries, wishlist, cardUrl],
     );
+
   };
 
   if (title === "Character Lookup") {

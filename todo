@@ -32,7 +32,6 @@
 
 - utility:
     - list all reminders command
-    - sqlite to mysql translator then env to switch if want
     - on /multipliers XP if page 1 add "record" reaction, will clean all XP multipliers,
       then wait for last page (add "done" reaction),
       then show all missing XP multipliers
