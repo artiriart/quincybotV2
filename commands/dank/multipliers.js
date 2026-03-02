@@ -19,7 +19,7 @@ const { modalHandlers } = require("../../functions/interactions/modal");
 const MULTIPLIER_VIEW_STATE_TYPE = "dank_multiplier_view";
 const MULTIPLIER_ROUTE_PREFIX = "dankmulti";
 const MULTIPLIER_PREMIUM_STATE_TYPE = "dank_multiplier_premium_global";
-const MULTIPLIER_PAGE_SIZE = 8;
+const MULTIPLIER_PAGE_SIZE = 20;
 const LEVEL_MODAL_CUSTOM_ID_PREFIX = `${MULTIPLIER_ROUTE_PREFIX}:level_modal`;
 const LEVEL_VIEW_STATE_TYPE = "dank_level_calc_view";
 const LEVEL_INPUT_START_ID = "level_start";
@@ -208,14 +208,84 @@ function loadTrackedMultiplierEntries(userId, multiplierType) {
 function listKnownMultipliers(multiplierType) {
   return global.db.safeQuery(
     `
-    SELECT name, MAX(amount) AS amount, MIN(description) AS description, MAX(emoji) AS emoji
+    SELECT name, amount, MIN(description) AS description, MAX(emoji) AS emoji
     FROM dank_multipliers
     WHERE type = ?
-    GROUP BY name
-    ORDER BY LOWER(name) ASC
+    GROUP BY name, amount
+    ORDER BY LOWER(name) ASC, amount DESC
     `,
     [multiplierType],
   );
+}
+
+function makeMultiplierSelectionKey(name, amount) {
+  const safeName = String(name || "").trim();
+  const safeAmount = Number(amount).toFixed(4);
+  const base = `${safeName}::${safeAmount}`;
+  if (base.length <= 100) return base;
+
+  // Discord select option values are capped at 100 chars.
+  let hash = 0;
+  for (let i = 0; i < safeName.length; i += 1) {
+    hash = Math.imul(31, hash) + safeName.charCodeAt(i);
+    hash |= 0;
+  }
+  const hashPart = Math.abs(hash).toString(36);
+  const trimmedName = safeName.slice(0, 82);
+  return `${trimmedName}#${hashPart}::${safeAmount}`.slice(0, 100);
+}
+
+function normalizeSelectedMultiplierKeys(selectedValues, rows) {
+  const keyMap = new Map();
+  const highestByName = new Map();
+
+  for (const row of rows || []) {
+    const key = makeMultiplierSelectionKey(row?.name, row?.amount);
+    keyMap.set(key, row);
+
+    const name = String(row?.name || "").trim();
+    if (!name) continue;
+    const prev = highestByName.get(name);
+    if (!prev || Number(row?.amount || 0) > Number(prev.amount || 0)) {
+      highestByName.set(name, row);
+    }
+  }
+
+  const out = [];
+  const seen = new Set();
+  for (const rawValue of selectedValues || []) {
+    const value = String(rawValue || "").trim();
+    if (!value) continue;
+
+    if (keyMap.has(value)) {
+      if (!seen.has(value)) {
+        seen.add(value);
+        out.push(value);
+      }
+      continue;
+    }
+
+    const fallbackRow = highestByName.get(value);
+    if (!fallbackRow) {
+      // Keep special synthetic entries that are not part of the selectable pool.
+      if (/(omega|prestige|premium)/i.test(value) && !seen.has(value)) {
+        seen.add(value);
+        out.push(value);
+      }
+      continue;
+    }
+
+    const fallbackKey = makeMultiplierSelectionKey(
+      fallbackRow.name,
+      fallbackRow.amount,
+    );
+    if (!seen.has(fallbackKey)) {
+      seen.add(fallbackKey);
+      out.push(fallbackKey);
+    }
+  }
+
+  return out;
 }
 
 function getPremiumConfig(value) {
@@ -397,24 +467,33 @@ function computeMultiplierResult(multiplierType, profile, knownRows, trackedRows
       source: "tracked",
     }));
   } else {
-    const byName = new Map(
+    const byKey = new Map(
       knownRows.map((row) => [
-        row.name,
+        makeMultiplierSelectionKey(row?.name, row?.amount),
         {
+          name: String(row?.name || ""),
           amount: Number(row.amount),
           emoji: String(row.emoji || ""),
         },
       ]),
     );
-    entries = (profile.selected || [])
-      .filter((name) => !/premium/i.test(String(name || "")))
-      .map((name) => ({
-        name,
-        amount: Number(byName.get(name)?.amount),
-        emoji: byName.get(name)?.emoji || null,
+    const selectedKeys = normalizeSelectedMultiplierKeys(profile.selected || [], knownRows);
+    entries = selectedKeys
+      .filter((key) => !/premium/i.test(String(key || "")))
+      .map((key) => {
+        const row = byKey.get(key);
+        return {
+          name: String(row?.name || ""),
+          amount: Number(row?.amount),
+          emoji: row?.emoji || null,
+          source: "manual",
+        };
+      })
+      .filter((row) => row.name && Number.isFinite(row.amount))
+      .map((row) => ({
+        ...row,
         source: "manual",
-      }))
-      .filter((row) => row.name && Number.isFinite(row.amount));
+      }));
 
     if (multiplierType === "xp") {
       const omega = Math.max(0, Math.trunc(Number(profile.omega || 0)));
@@ -549,10 +628,11 @@ function applyButtonEmoji(button, emoji) {
 function buildMultiplierOptions(rows, selectedSet, multiplierType) {
   return rows.map((row) => {
     const amount = formatMultiplierAmount(multiplierType, row.amount);
+    const key = makeMultiplierSelectionKey(row?.name, row?.amount);
     const option = {
       label: `${String(row.name)} [${amount}]`.slice(0, 100),
-      value: String(row.name).slice(0, 100),
-      default: selectedSet.has(String(row.name)),
+      value: key,
+      default: selectedSet.has(key),
     };
     const emoji = parseEmojiValue(row.emoji);
     if (emoji) option.emoji = emoji;
@@ -583,6 +663,12 @@ function buildMultiplierEditPayload(viewState) {
   const rows = listKnownMultipliers(viewState.type);
   const trackedRows = loadTrackedMultiplierEntries(viewState.userId, viewState.type);
   const sortedRows = splitMultiplierRows(rows);
+  const normalizedSelected = normalizeSelectedMultiplierKeys(
+    profile.selected || [],
+    sortedRows,
+  );
+  profile.selected = normalizedSelected;
+  saveMultiplierProfile(viewState.userId, viewState.type, profile);
   const totalPages = Math.max(
     1,
     Math.ceil(sortedRows.length / MULTIPLIER_PAGE_SIZE),
@@ -595,7 +681,7 @@ function buildMultiplierEditPayload(viewState) {
     page * MULTIPLIER_PAGE_SIZE,
     (page + 1) * MULTIPLIER_PAGE_SIZE,
   );
-  const selectedSet = new Set(profile.selected || []);
+  const selectedSet = new Set(normalizedSelected);
   const hasOmegaMultiplier =
     [...selectedSet].some((name) => /omega/i.test(String(name || ""))) ||
     trackedRows.some((entry) => /omega/i.test(String(entry?.name || "")));
@@ -1375,27 +1461,32 @@ async function handleDankMultiplierSelect(interaction) {
   const profile = loadMultiplierProfile(view.userId, view.type);
   const rows = listKnownMultipliers(view.type);
   const sortedRows = splitMultiplierRows(rows);
+  profile.selected = normalizeSelectedMultiplierKeys(profile.selected || [], sortedRows);
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / MULTIPLIER_PAGE_SIZE));
   const page = Math.min(Math.max(0, Number(view.page || 0)), totalPages - 1);
   const pageRows = sortedRows.slice(
     page * MULTIPLIER_PAGE_SIZE,
     (page + 1) * MULTIPLIER_PAGE_SIZE,
   );
-  const pageNames = new Set(pageRows.map((row) => String(row.name)));
+  const pageKeys = new Set(
+    pageRows.map((row) => makeMultiplierSelectionKey(row?.name, row?.amount)),
+  );
 
   if (action === "edit_select") {
     const beforeOnPage = new Set(
-      (profile.selected || []).filter((name) => pageNames.has(name)),
+      (profile.selected || []).filter((key) => pageKeys.has(key)),
     );
     const keep = [];
-    for (const name of profile.selected || []) {
-      if (pageNames.has(name)) continue;
-      keep.push(name);
+    for (const key of profile.selected || []) {
+      if (pageKeys.has(key)) continue;
+      keep.push(key);
     }
-    const add = (interaction.values || []).map((v) => String(v || "").trim()).filter(Boolean);
+    const add = (interaction.values || [])
+      .map((v) => String(v || "").trim())
+      .filter((v) => pageKeys.has(v));
     const afterOnPage = new Set(add);
-    const added = add.filter((name) => !beforeOnPage.has(name));
-    const removed = [...beforeOnPage].filter((name) => !afterOnPage.has(name));
+    const added = add.filter((key) => !beforeOnPage.has(key));
+    const removed = [...beforeOnPage].filter((key) => !afterOnPage.has(key));
     profile.selected = [...new Set([...keep, ...add])];
     saveMultiplierProfile(view.userId, view.type, profile);
     syncManualSelectedMultiplierRows(view.userId, view.type, profile.selected);
@@ -1409,9 +1500,20 @@ async function handleDankMultiplierSelect(interaction) {
     if (added.length || removed.length) {
       const logIn = global.db.getFeatherEmojiMarkdown("log-in") || "➕";
       const logOut = global.db.getFeatherEmojiMarkdown("log-out") || "➖";
+      const rowByKey = new Map(
+        pageRows.map((row) => [
+          makeMultiplierSelectionKey(row?.name, row?.amount),
+          row,
+        ]),
+      );
+      const formatKey = (key) => {
+        const row = rowByKey.get(key);
+        if (!row) return key;
+        return `${row.name} [${formatMultiplierAmount(view.type, row.amount)}]`;
+      };
       const lines = [
-        ...added.map((name) => `${logIn} Added: **${name}**`),
-        ...removed.map((name) => `${logOut} Removed: **${name}**`),
+        ...added.map((key) => `${logIn} Added: **${formatKey(key)}**`),
+        ...removed.map((key) => `${logOut} Removed: **${formatKey(key)}**`),
       ];
       const container = new ContainerBuilder().addTextDisplayComponents(
         new TextDisplayBuilder().setContent(lines.join("\n")),
