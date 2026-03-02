@@ -413,18 +413,23 @@ async function handleDankMessage(message, oldMessage, settings) {
     let totalPayout = 0;
     const nukePayouts = [];
 
-    for (const nukePayout of componentText
-      ?.split("\n")
-      .filter((l) => l.startsWith("-") && l.includes("⏣")) || []) {
-      const joined = nukePayout.split(" ")[1]?.trim();
-      const userPayout = joined?.split("⏣")?.[1]?.replaceAll(",", "").trim();
+    for (const nukePayout of componentText?.split("\n") || []) {
+      const match = String(nukePayout || "")
+        .trim()
+        .match(
+          /^[+-]\s+(.+?)\s+(?:won|picked up|got|received|earned)\s+⏣\s*([\d,]+)\b/i,
+        );
+      if (!match) continue;
+
+      const joined = String(match[1] || "").trim();
+      const userPayout = String(match[2] || "").replaceAll(",", "").trim();
       const parsedPayout = Number.parseInt(userPayout, 10);
       if (!Number.isFinite(parsedPayout)) continue;
 
       totalPayout += parsedPayout;
       nukePayouts.push({
         user: joined,
-        amount: userPayout,
+        amount: parsedPayout,
       });
     }
 

@@ -13,7 +13,6 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require("discord.js");
-const fs = require("fs");
 const { buttonHandlers } = require("../functions/interactions/button");
 const { modalHandlers } = require("../functions/interactions/modal");
 const { selectMenuHandlers } = require("../functions/interactions/selectMenu");
@@ -117,23 +116,7 @@ function parseWishlistValue(raw) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
-function importKarutaSpreadsheet(filePath) {
-  const fullPath = String(filePath || "").trim();
-  if (!fullPath) {
-    return { error: "File path cannot be empty." };
-  }
-
-  if (!fs.existsSync(fullPath)) {
-    return { error: `File not found: \`${fullPath}\`` };
-  }
-
-  let csvText;
-  try {
-    csvText = fs.readFileSync(fullPath, "utf8");
-  } catch (error) {
-    return { error: `Unable to read file: ${error?.message || String(error)}` };
-  }
-
+function importKarutaSpreadsheetCsv(csvText) {
   const rows = parseCsvRows(csvText);
   if (!rows.length) {
     return { error: "CSV appears to be empty." };
@@ -195,6 +178,39 @@ function importKarutaSpreadsheet(filePath) {
     return { imported, skipped, totalRows: Math.max(0, rows.length - 1) };
   } catch (error) {
     return { error: `Import failed: ${error?.message || String(error)}` };
+  }
+}
+
+async function loadSpreadsheetCsvFromAttachment(attachment) {
+  if (!attachment?.url) {
+    return { error: "Attachment is missing a valid URL." };
+  }
+
+  const name = String(attachment.name || "").toLowerCase();
+  const contentType = String(attachment.contentType || "").toLowerCase();
+  const isCsvName = name.endsWith(".csv");
+  const isCsvType = contentType.includes("csv") || contentType.startsWith("text/");
+  if (!isCsvName && !isCsvType) {
+    return { error: "Attachment must be a CSV file." };
+  }
+
+  if (typeof fetch !== "function") {
+    return { error: "Runtime fetch API is unavailable." };
+  }
+
+  try {
+    const response = await fetch(attachment.url);
+    if (!response.ok) {
+      return {
+        error: `Failed to download attachment (HTTP ${response.status}).`,
+      };
+    }
+    const csvText = await response.text();
+    return { csvText };
+  } catch (error) {
+    return {
+      error: `Unable to download attachment: ${error?.message || String(error)}`,
+    };
   }
 }
 
@@ -1410,10 +1426,10 @@ module.exports = {
           subcommand
             .setName("spreadsheet")
             .setDescription("Import Karuta CSV data into karuta_cards")
-            .addStringOption((option) =>
+            .addAttachmentOption((option) =>
               option
                 .setName("file")
-                .setDescription("Absolute CSV file path")
+                .setDescription("Karuta CSV export file")
                 .setRequired(true),
             ),
         ),
@@ -1505,8 +1521,17 @@ module.exports = {
     }
 
     if (group === "karuta" && subcommand === "spreadsheet") {
-      const file = String(interaction.options.getString("file", true) || "").trim();
-      const result = importKarutaSpreadsheet(file);
+      const file = interaction.options.getAttachment("file", true);
+      const loaded = await loadSpreadsheetCsvFromAttachment(file);
+      if (loaded?.error) {
+        await interaction.reply({
+          content: `Karuta spreadsheet import failed.\n-# ${loaded.error}`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const result = importKarutaSpreadsheetCsv(loaded.csvText);
 
       if (result?.error) {
         await interaction.reply({
