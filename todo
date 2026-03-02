@@ -28,9 +28,7 @@
 - dank:
     - (test) weekly bundle box reminders
     - (test) multiplier stats
-    - (test) nuke rewards extractor
     - (edit) do sync daily aka make it sync, not one time thing (sync = check which combinations not in table, fetch simulator if needed). also startup sync is ran daily too
-    - (test) find edge cases for multiplier xp indexing which break indexing
 
 - utility:
     - list all reminders command

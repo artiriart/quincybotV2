@@ -648,10 +648,12 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
   }
 
   setOrMergeCustomDankItem("Skin Fragments", {
-    value: 10000,
+    value: 1,
+    market: 10000,
     imageURL: DANK_CUSTOM_ITEM_IMAGES["Skin Fragments"],
   });
   setOrMergeCustomDankItem("DMC", {
+    market: 1,
     value: 1,
     imageURL: DANK_CUSTOM_ITEM_IMAGES.DMC,
   });

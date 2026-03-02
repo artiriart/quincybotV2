@@ -334,7 +334,7 @@ function buildStatsLines(items, itemMetaMap, cornerEmoji) {
 
   const lines = normalized.map((entry) => {
     const itemLine = `${entry.amount.toLocaleString()} ${entry.emoji ? `${entry.emoji} ` : ""}**${entry.name}**`;
-    const valueLine = `-# ${cornerEmoji} ⏣ ${Math.max(0, entry.lineValue).toLocaleString()}`;
+    const valueLine = `-# ${cornerEmoji} ⏣ ${entry.lineValue.toLocaleString()}`;
     return `${itemLine}\n${valueLine}`;
   });
 
@@ -467,7 +467,7 @@ function buildDankStatsPayload(viewState) {
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(contentLines))
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
     .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`### Total: ⏣ ${Math.max(0, total).toLocaleString()}`),
+      new TextDisplayBuilder().setContent(`### Total: ⏣ ${total.toLocaleString()}`),
     )
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
