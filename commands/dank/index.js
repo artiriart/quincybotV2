@@ -7,6 +7,8 @@ const {
 } = require("./multipliers");
 const { runDankNuke } = require("./nuke");
 const { runDankItemCalc } = require("./itemcalc");
+const { runDankFishMythicals } = require("./fishMythicals");
+const { runDankFishChances } = require("./fishChances");
 
 async function runDank(interaction) {
   if (!interaction?.isChatInputCommand?.()) return;
@@ -26,6 +28,16 @@ async function runDank(interaction) {
 
   if (subcommand === "itemcalc") {
     await runDankItemCalc(interaction);
+    return;
+  }
+
+  if (subcommandGroup === "fish" && subcommand === "mythicals") {
+    await runDankFishMythicals(interaction);
+    return;
+  }
+
+  if (subcommandGroup === "fish" && subcommand === "chances") {
+    await runDankFishChances(interaction);
     return;
   }
 
@@ -148,6 +160,21 @@ module.exports = {
             .setName("prompt")
             .setDescription("Item amount+name separated by commas")
             .setRequired(true),
+        ),
+    )
+    .addSubcommandGroup((subcommandGroup) =>
+      subcommandGroup
+        .setName("fish")
+        .setDescription("Fish helper commands")
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("mythicals")
+            .setDescription("Mythical fish hunter helper"),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("chances")
+            .setDescription("Show current fishing chances from live simulator"),
         ),
     )
     .addSubcommand((subcommand) =>

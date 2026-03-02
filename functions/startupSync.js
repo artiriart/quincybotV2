@@ -3,9 +3,6 @@ const path = require("path");
 const sharp = require("sharp");
 const colors = require("colors");
 
-// todo: index dank memer fishing related items. Default value is Token calculation copied from V2, changable trough dev command
-// todo: after this we get rid of the customDankItemValues.json file. Fish Endpoint: https://dankmemer.lol/api/bot/fish/data [data.baits.items, data.tools.items]
-
 const DANK_ITEMS_URL = "https://dankmemer.lol/api/bot/items";
 const DANK_FISH_DATA_URL = "https://dankmemer.lol/api/bot/fish/data";
 const FEATHER_ICONS_URL =
@@ -26,10 +23,8 @@ const CUSTOM_DANK_VALUES_PATH = path.join(
 const DECO_EMOJIS_PATH = path.join(__dirname, "..", "utils", "decoEmojis.json");
 const EMOJI_RESET_STATE_KEY = "startup_emoji_reset_v1";
 const DANK_CUSTOM_ITEM_IMAGES = {
-  "Fish Tokens":
-    "https://cdn.discordapp.com/emojis/1157677856596435086.png",
-  "Skin Fragments":
-    "https://cdn.discordapp.com/emojis/1060272407471984710.png",
+  "Fish Tokens": "https://cdn.discordapp.com/emojis/1157677856596435086.png",
+  "Skin Fragments": "https://cdn.discordapp.com/emojis/1060272407471984710.png",
   DMC: "https://cdn.discordapp.com/emojis/1105833876032606350.png",
 };
 
@@ -51,6 +46,13 @@ function toInt(value, fallback = 0) {
   const parsed = Number(String(value).replace(/,/g, "").trim());
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(0, Math.trunc(parsed));
+}
+
+function toNullableInt(value) {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.trunc(parsed);
 }
 
 function normalizeEmojiName(rawName, prefix = "") {
@@ -297,6 +299,197 @@ function normalizeIzziItemStats(stats) {
   });
 }
 
+function titleFromId(value) {
+  return String(value || "")
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+async function resolveFishEntityEmoji({
+  app,
+  existingEmojis,
+  entityType,
+  entityName,
+  imageURL,
+}) {
+  if (!imageURL) return null;
+  const emojiName = normalizeEmojiName(`${entityType}_${entityName}`, "dank_");
+  let emoji = existingEmojis.get(emojiName.toLowerCase()) || null;
+  if (!emoji && app?.emojis) {
+    emoji = await ensureApplicationEmoji(
+      app,
+      existingEmojis,
+      emojiName,
+      imageURL,
+      `Fish ${entityType}`,
+    );
+  }
+  return emojiMarkdown(emoji);
+}
+
+async function syncDankFishEntities(sqlite, existingEmojis, fishPayload) {
+  const app = global.bot?.application;
+  const creatures = Array.isArray(fishPayload?.data?.creatures?.items)
+    ? fishPayload.data.creatures.items
+    : [];
+  const locations = Array.isArray(fishPayload?.data?.locations?.items)
+    ? fishPayload.data.locations.items
+    : [];
+  const baits = Array.isArray(fishPayload?.data?.baits?.items)
+    ? fishPayload.data.baits.items
+    : [];
+  const tools = Array.isArray(fishPayload?.data?.tools?.items)
+    ? fishPayload.data.tools.items
+    : [];
+
+  const locationIds = new Set();
+  for (const creature of creatures) {
+    const locations = Array.isArray(creature?.extra?.locations)
+      ? creature.extra.locations
+      : [];
+    for (const locationId of locations) {
+      if (locationId) locationIds.add(String(locationId));
+    }
+  }
+
+  const upsertEntity = sqlite.prepare(`
+    INSERT INTO dank_fish_entities (
+      entity_type, entity_id, name, application_emoji, image_url, rarity, is_boss, is_mythical, metadata_json, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+      name = excluded.name,
+      application_emoji = COALESCE(excluded.application_emoji, dank_fish_entities.application_emoji),
+      image_url = excluded.image_url,
+      rarity = excluded.rarity,
+      is_boss = excluded.is_boss,
+      is_mythical = excluded.is_mythical,
+      metadata_json = excluded.metadata_json,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+
+  let entityCount = 0;
+  let mythicalCount = 0;
+
+  for (const creature of creatures) {
+    const entityId = String(creature?.id || "").trim();
+    const name = String(creature?.name || "").trim();
+    if (!entityId || !name) continue;
+
+    const rarity = String(creature?.extra?.rarity || "").trim() || null;
+    const isBoss = creature?.extra?.boss ? 1 : 0;
+    const isMythical = creature?.extra?.mythical ? 1 : 0;
+    const imageURL = String(creature?.imageURL || "").trim() || null;
+    const markdown = await resolveFishEntityEmoji({
+      app,
+      existingEmojis,
+      entityType: "creature",
+      entityName: name,
+      imageURL,
+    });
+
+    upsertEntity.run(
+      "creature",
+      entityId,
+      name,
+      markdown,
+      imageURL,
+      rarity,
+      isBoss,
+      isMythical,
+      JSON.stringify(creature?.extra || {}),
+    );
+
+    entityCount += 1;
+    if (isMythical) mythicalCount += 1;
+  }
+
+  for (const tool of tools) {
+    const entityId = String(tool?.id || "").trim();
+    const name = String(tool?.name || "").trim();
+    if (!entityId || !name) continue;
+    const imageURL = String(tool?.imageURL || "").trim() || null;
+    const markdown = await resolveFishEntityEmoji({
+      app,
+      existingEmojis,
+      entityType: "tool",
+      entityName: name,
+      imageURL,
+    });
+
+    upsertEntity.run(
+      "tool",
+      entityId,
+      name,
+      markdown,
+      imageURL,
+      null,
+      0,
+      0,
+      JSON.stringify(tool?.extra || {}),
+    );
+    entityCount += 1;
+  }
+
+  for (const bait of baits) {
+    const entityId = String(bait?.id || "").trim();
+    const name = String(bait?.name || "").trim();
+    if (!entityId || !name) continue;
+    const imageURL = String(bait?.imageURL || "").trim() || null;
+    const markdown = await resolveFishEntityEmoji({
+      app,
+      existingEmojis,
+      entityType: "bait",
+      entityName: name,
+      imageURL,
+    });
+
+    upsertEntity.run(
+      "bait",
+      entityId,
+      name,
+      markdown,
+      imageURL,
+      null,
+      0,
+      0,
+      JSON.stringify(bait?.extra || {}),
+    );
+    entityCount += 1;
+  }
+
+  for (const locationId of locationIds) {
+    const rawLocation = locations.find((loc) => String(loc?.id || "") === locationId);
+    const locationName = String(rawLocation?.name || "").trim() || titleFromId(locationId);
+    const locationImage = String(rawLocation?.imageURL || "").trim() || null;
+    const locationEmoji = await resolveFishEntityEmoji({
+      app,
+      existingEmojis,
+      entityType: "location",
+      entityName: locationName,
+      imageURL: locationImage,
+    });
+    upsertEntity.run(
+      "location",
+      locationId,
+      locationName,
+      locationEmoji,
+      locationImage,
+      null,
+      0,
+      0,
+      JSON.stringify(rawLocation?.extra || {}),
+    );
+    entityCount += 1;
+  }
+
+  console.log(
+    `${colorSyncLabel("Dank fish sync complete:")} ${colorMetric(entityCount)} entities upserted (${colorMetric(mythicalCount, "magenta")} mythicals).`,
+  );
+}
+
 async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
   const app = global.bot?.application;
   const dankPayload = extractListPayload(
@@ -312,6 +505,7 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
 
     byName.set(name, {
       name,
+      dankId: Number.isFinite(Number(raw?.id)) ? Number(raw.id) : null,
       market: toInt(raw?.marketValue),
       value: toInt(raw?.value),
       imageURL: String(raw?.imageURL || "").trim() || null,
@@ -327,6 +521,7 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
 
     const existing = byName.get(name) || {
       name,
+      dankId: null,
       market: 0,
       value: 0,
       imageURL: null,
@@ -345,7 +540,9 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
 
   const normalizedItems = new Map(
     Array.from(byName.values()).map((item) => [
-      String(item.name || "").trim().toLowerCase(),
+      String(item.name || "")
+        .trim()
+        .toLowerCase(),
       {
         market: Number(item.market) || 0,
         value: Number(item.value) || 0,
@@ -382,6 +579,7 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
     const targetKey = existingKey || itemName;
     const existing = byName.get(targetKey) || {
       name: itemName,
+      dankId: null,
       market: 0,
       value: 0,
       imageURL: null,
@@ -430,6 +628,7 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
   const fishTools = Array.isArray(fishPayload?.data?.tools?.items)
     ? fishPayload.data.tools.items
     : [];
+  await syncDankFishEntities(sqlite, existingEmojis, fishPayload);
 
   for (const fishItem of [...fishBaits, ...fishTools]) {
     const itemName = String(fishItem?.name || "").trim();
@@ -458,9 +657,10 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
   });
 
   const upsertDank = sqlite.prepare(`
-    INSERT INTO dank_items (name, market, value, application_emoji, fishing)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO dank_items (name, dank_id, market, value, application_emoji, fishing)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
+      dank_id = excluded.dank_id,
       market = excluded.market,
       value = excluded.value,
       application_emoji = COALESCE(excluded.application_emoji, dank_items.application_emoji),
@@ -489,11 +689,35 @@ async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
     const markdown = emojiMarkdown(emoji) || item.rawEmoji || null;
     if (markdown) indexedEmojiCount += 1;
 
-    upsertDank.run(item.name, item.market, item.value, markdown, item.fishing);
+    upsertDank.run(
+      item.name,
+      toNullableInt(item.dankId),
+      item.market,
+      item.value,
+      markdown,
+      item.fishing,
+    );
+  }
+
+  sqlite.prepare(`UPDATE dank_items SET dank_id = NULL`).run();
+
+  // Ensure dank_id is refreshed for all canonical API items by name.
+  const updateDankIdByName = sqlite.prepare(`
+    UPDATE dank_items
+    SET dank_id = ?
+    WHERE LOWER(name) = LOWER(?)
+  `);
+  let idBackfillCount = 0;
+  for (const raw of dankPayload) {
+    const itemName = String(raw?.name || "").trim();
+    const itemId = Number(raw?.id);
+    if (!itemName || !Number.isFinite(itemId)) continue;
+    const result = updateDankIdByName.run(itemId, itemName);
+    idBackfillCount += Number(result?.changes || 0);
   }
 
   console.log(
-    `${colorSyncLabel("Dank sync complete:")} ${colorMetric(byName.size)} items upserted, ${colorMetric(createdEmojiCount, "yellow")} emojis created, ${colorMetric(indexedEmojiCount, "magenta")} emoji refs indexed.`,
+    `${colorSyncLabel("Dank sync complete:")} ${colorMetric(byName.size)} items upserted, ${colorMetric(createdEmojiCount, "yellow")} emojis created, ${colorMetric(indexedEmojiCount, "magenta")} emoji refs indexed, ${colorMetric(idBackfillCount)} ids refreshed.`,
   );
 }
 
@@ -561,7 +785,9 @@ async function syncFeatherEmojis(sqlite, existingEmojis) {
 async function syncDecoEmojis(sqlite, existingEmojis) {
   const app = global.bot?.application;
   if (!app?.emojis) {
-    console.warn("Deco emoji sync skipped: application emoji manager unavailable.");
+    console.warn(
+      "Deco emoji sync skipped: application emoji manager unavailable.",
+    );
     return;
   }
 
@@ -837,7 +1063,6 @@ async function syncAnigameCards(sqlite) {
   );
 }
 
-
 async function runStartupSync() {
   if (startupSyncPromise) {
     return startupSyncPromise;
@@ -855,6 +1080,10 @@ async function runStartupSync() {
 
     const steps = [
       () => syncDankItemsAndEmojis(sqlite, existingEmojis),
+      async () => {
+        const { ensureStartupMythicalChancesIndex } = require("./dank/fishSimulator");
+        await ensureStartupMythicalChancesIndex({ onlyIfMissing: true });
+      },
       () => syncFeatherEmojis(sqlite, existingEmojis),
       () => syncDecoEmojis(sqlite, existingEmojis),
       () => syncIzziCards(sqlite),

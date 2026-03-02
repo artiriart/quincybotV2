@@ -17,6 +17,7 @@ const schema = {
   // ===== DANK BOT DATA =====
   dank_items: {
     name: "TEXT NOT NULL",
+    dank_id: "INTEGER DEFAULT NULL",
     market: "INTEGER DEFAULT 0",
     value: "INTEGER DEFAULT 0",
     application_emoji: "TEXT DEFAULT NULL",
@@ -37,6 +38,42 @@ const schema = {
     amount: "INTEGER DEFAULT 1",
     title: "BOOLEAN DEFAULT 0",
     _constraint: "PRIMARY KEY (level, name, title)",
+  },
+  dank_fish_entities: {
+    entity_type: "TEXT NOT NULL", // creature, tool, bait, location
+    entity_id: "TEXT NOT NULL",
+    name: "TEXT NOT NULL",
+    application_emoji: "TEXT DEFAULT NULL",
+    image_url: "TEXT DEFAULT NULL",
+    rarity: "TEXT DEFAULT NULL",
+    is_boss: "BOOLEAN DEFAULT 0",
+    is_mythical: "BOOLEAN DEFAULT 0",
+    metadata_json: "TEXT DEFAULT '{}'",
+    updated_at: "TEXT DEFAULT CURRENT_TIMESTAMP",
+    _constraint: "PRIMARY KEY (entity_type, entity_id)",
+  },
+  dank_fish_settings: {
+    user_id: "TEXT NOT NULL",
+    target_type: "TEXT DEFAULT NULL",
+    target_id: "TEXT DEFAULT NULL",
+    is_hunting: "BOOLEAN DEFAULT 0",
+    lucky_bait_enabled: "BOOLEAN DEFAULT 0",
+    updated_at: "TEXT DEFAULT CURRENT_TIMESTAMP",
+    _constraint: "PRIMARY KEY (user_id)",
+  },
+  dank_fish_mythical_chances: {
+    creature_id: "TEXT NOT NULL",
+    location_id: "TEXT NOT NULL",
+    tool_id: "TEXT NOT NULL",
+    bait_id: "TEXT NOT NULL",
+    hour_utc: "INTEGER NOT NULL",
+    is_tuesday: "BOOLEAN NOT NULL",
+    chance: "REAL DEFAULT 0",
+    fail_chance: "REAL DEFAULT 0",
+    npc_chance: "REAL DEFAULT 0",
+    last_updated: "TEXT DEFAULT CURRENT_TIMESTAMP",
+    _constraint:
+      "PRIMARY KEY (creature_id, location_id, tool_id, bait_id, hour_utc, is_tuesday)",
   },
   // ===== 7W7 BOT DATA =====
   // ===== ANIME BOTS DATA =====
@@ -577,6 +614,18 @@ function sweepNonPermanentStates() {
  */
 function initDatabase() {
   syncTables();
+  safeQuery(
+    `CREATE INDEX IF NOT EXISTS idx_dank_fish_entities_type_name ON dank_fish_entities(entity_type, name)`,
+  );
+  safeQuery(
+    `CREATE INDEX IF NOT EXISTS idx_dank_fish_entities_type_mythical ON dank_fish_entities(entity_type, is_mythical)`,
+  );
+  safeQuery(
+    `CREATE INDEX IF NOT EXISTS idx_dank_fish_entities_type_rarity ON dank_fish_entities(entity_type, rarity)`,
+  );
+  safeQuery(
+    `CREATE INDEX IF NOT EXISTS idx_dank_fish_mythical_chances_lookup ON dank_fish_mythical_chances(hour_utc, is_tuesday, bait_id)`,
+  );
   // Backfill legacy claims table into the newer stats table.
   const legacyClaims = safeQuery(
     `SELECT user_id, bot_name, rarity, amount FROM card_claims`,
