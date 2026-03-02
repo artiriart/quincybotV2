@@ -415,15 +415,11 @@ async function handleDankMessage(message, oldMessage, settings) {
     const nukePayouts = [];
 
     for (const nukePayout of componentText?.split("\n") || []) {
-      const match = String(nukePayout || "")
-        .trim()
-        .match(
-          /^[+-]\s+(.+?)\s+(?:won|picked up|got|received|earned)\s+⏣\s*([\d,]+)\b/i,
-        );
-      if (!match) continue;
+      if (!nukePayout?.startsWith("+")) return;
 
-      const joined = String(match[1] || "").trim();
-      const userPayout = String(match[2] || "").replaceAll(",", "").trim();
+
+      const joined = nukePayout.split(" ")[1].trim();
+      const userPayout = nukePayout.split("⏣")[1].replaceAll(",", "").trim();
       const parsedPayout = Number.parseInt(userPayout, 10);
       if (!Number.isFinite(parsedPayout)) continue;
 
