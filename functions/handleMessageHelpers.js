@@ -228,6 +228,11 @@ function normalizeMultiplierName(rawName) {
   name = stripLeadingCustomEmoji(name);
   name = stripMarkdownLink(name);
   name = stripExpirySuffix(name);
+  if (/^global boost\b/i.test(name)) {
+    // Normalize "Global Boost (+x pending)" variants to one stable key.
+    name = name.replace(/\s*\(\+\s*[^)]*?\s*pending\s*\)\s*/gi, " ").trim();
+    name = "Global Boost";
+  }
   return name.trim();
 }
 
@@ -314,7 +319,12 @@ function shouldIgnoreInMaster(type, name) {
   const lower = String(name || "").toLowerCase();
   if (lower.includes("premium")) return true;
   if (type === "xp") {
-    return lower.includes("omega") || lower.includes("prestige");
+    return (
+      lower.includes("omega") ||
+      lower.includes("prestige") ||
+      lower.includes("level 20,000") ||
+      lower.includes("level 20000")
+    );
   }
   if (type === "coins") {
     if (lower.includes("badge")) return true;
