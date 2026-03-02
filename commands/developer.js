@@ -13,6 +13,7 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require("discord.js");
+const handleMessage = require("../functions/handleMessage");
 const { buttonHandlers } = require("../functions/interactions/button");
 const { modalHandlers } = require("../functions/interactions/modal");
 const { selectMenuHandlers } = require("../functions/interactions/selectMenu");
@@ -212,6 +213,53 @@ async function loadSpreadsheetCsvFromAttachment(attachment) {
       error: `Unable to download attachment: ${error?.message || String(error)}`,
     };
   }
+}
+
+function parseDiscordMessageUrl(rawUrl) {
+  const url = String(rawUrl || "").trim();
+  const match = url.match(
+    /^https?:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/channels\/([^/]+)\/(\d+)\/(\d+)(?:\?.*)?$/i,
+  );
+  if (!match) return null;
+  return {
+    guildId: match[1],
+    channelId: match[2],
+    messageId: match[3],
+  };
+}
+
+async function testMessageFromUrl(client, rawUrl) {
+  const parsed = parseDiscordMessageUrl(rawUrl);
+  if (!parsed) {
+    return {
+      error:
+        "Invalid message URL. Expected: https://discord.com/channels/<guild|@me>/<channel>/<message>",
+    };
+  }
+
+  const channel = await client.channels.fetch(parsed.channelId).catch(() => null);
+  if (!channel) {
+    return { error: "Unable to fetch channel from the provided URL." };
+  }
+
+  if (typeof channel?.messages?.fetch !== "function") {
+    return { error: "Target channel does not support message fetching." };
+  }
+
+  const message = await channel.messages.fetch(parsed.messageId).catch(() => null);
+  if (!message) {
+    return { error: "Unable to fetch message from that channel." };
+  }
+
+  await handleMessage(message);
+
+  return {
+    messageId: message.id,
+    channelId: message.channelId,
+    guildId: message.guildId || "@me",
+    authorId: message.author?.id || "unknown",
+    authorBot: Boolean(message.author?.bot),
+  };
 }
 
 function isDevAllowed(userId) {
@@ -1373,6 +1421,17 @@ module.exports = {
     .addSubcommand((subcommand) =>
       subcommand.setName("eval").setDescription("Evaluate code"),
     )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("test-message")
+        .setDescription("Fetch a Discord message URL and run messageCreate pipeline")
+        .addStringOption((option) =>
+          option
+            .setName("url")
+            .setDescription("Discord message URL")
+            .setRequired(true),
+        ),
+    )
     .addSubcommandGroup((subcommandGroup) =>
       subcommandGroup
         .setName("edit")
@@ -1450,6 +1509,33 @@ module.exports = {
 
     if (group === "edit" && subcommand === "7w7-items") {
       await interaction.reply(build7w7ItemEditorPanel());
+      return;
+    }
+
+    if (!group && subcommand === "test-message") {
+      const url = String(interaction.options.getString("url", true) || "").trim();
+      const result = await testMessageFromUrl(interaction.client, url).catch((error) => ({
+        error: error?.message || String(error),
+      }));
+
+      if (result?.error) {
+        await interaction.reply({
+          content: `Test-message failed.\n-# ${result.error}`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.reply({
+        content: [
+          "Test-message executed through `handleMessage(...)`.",
+          `Guild: \`${result.guildId}\``,
+          `Channel: \`${result.channelId}\``,
+          `Message: \`${result.messageId}\``,
+          `Author: \`${result.authorId}\` (bot: \`${result.authorBot}\`)`,
+        ].join("\n"),
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
 

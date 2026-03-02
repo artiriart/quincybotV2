@@ -415,11 +415,34 @@ async function handleDankMessage(message, oldMessage, settings) {
     const nukePayouts = [];
 
     for (const nukePayout of componentText?.split("\n") || []) {
-      if (!nukePayout?.startsWith("+")) return;
+      const line = String(nukePayout || "").trim();
+      if (!line.startsWith("+") || !line.includes("⏣")) {
+        continue;
+      }
 
+      const [leftRaw, rightRaw] = line.split("⏣");
+      if (!leftRaw || !rightRaw) {
+        continue;
+      }
 
-      const joined = nukePayout.split(" ")[1].trim();
-      const userPayout = nukePayout.split("⏣")[1].replaceAll(",", "").trim();
+      const left = leftRaw.slice(1).trim(); // remove the leading "+"
+      const joined = String(
+        left
+          .split(" ")
+          .map((chunk) => chunk.trim())
+          .filter(Boolean)?.[0] || "",
+      ).trim();
+      if (!joined) {
+        continue;
+      }
+
+      const right = String(rightRaw || "").trim();
+      const amountToken =
+        right
+          .split(" ")
+          .map((chunk) => chunk.trim())
+          .filter(Boolean)?.[0] || "";
+      const userPayout = String(amountToken || "").replaceAll(",", "").trim();
       const parsedPayout = Number.parseInt(userPayout, 10);
       if (!Number.isFinite(parsedPayout)) continue;
 
@@ -434,12 +457,13 @@ async function handleDankMessage(message, oldMessage, settings) {
       new SectionBuilder()
         .addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            `### ${host}'s Coin Nuke dropped\n# ⏣ ${totalPayout.toLocaleString()}`,
+            `### ${host}'s ${global.db.getDankItemEmojiMarkdown("Coin Nuke")} Coin Nuke\n# ⏣ ${totalPayout.toLocaleString()}`,
           ),
         )
         .setButtonAccessory(
           new ButtonBuilder()
             .setLabel("Add to tracker")
+            .setEmoji(global.db.getFeatherEmojiMarkdown("database"))
             .setStyle(ButtonStyle.Primary)
             .setCustomId("danknuke:claim"),
         ),
