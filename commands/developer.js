@@ -13,6 +13,7 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require("discord.js");
+const fs = require("fs");
 const { buttonHandlers } = require("../functions/interactions/button");
 const { modalHandlers } = require("../functions/interactions/modal");
 const { selectMenuHandlers } = require("../functions/interactions/selectMenu");
@@ -49,6 +50,153 @@ const DANK_MULTIPLIER_EDIT_DESCRIPTION_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankm
 const DANK_MULTIPLIER_EMOJI_INPUT_ID = "multi_emoji";
 const DANK_MULTIPLIER_DESCRIPTION_INPUT_ID = "multi_description";
 const KARUTA_RECOG_STATE_TYPE = "karuta_recognition_settings";
+
+function normalizeKarutaKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function parseCsvRows(csvText) {
+  const text = String(csvText || "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let i = 0;
+  let inQuotes = false;
+
+  while (i < text.length) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        i += 2;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      i += 1;
+      continue;
+    }
+
+    if (!inQuotes && char === ",") {
+      row.push(cell);
+      cell = "";
+      i += 1;
+      continue;
+    }
+
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      row.push(cell);
+      cell = "";
+      if (row.some((entry) => String(entry || "").trim() !== "")) {
+        rows.push(row);
+      }
+      row = [];
+      if (char === "\r" && next === "\n") i += 2;
+      else i += 1;
+      continue;
+    }
+
+    cell += char;
+    i += 1;
+  }
+
+  row.push(cell);
+  if (row.some((entry) => String(entry || "").trim() !== "")) {
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function parseWishlistValue(raw) {
+  const parsed = Number.parseInt(String(raw || "").replaceAll(",", "").trim(), 10);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function importKarutaSpreadsheet(filePath) {
+  const fullPath = String(filePath || "").trim();
+  if (!fullPath) {
+    return { error: "File path cannot be empty." };
+  }
+
+  if (!fs.existsSync(fullPath)) {
+    return { error: `File not found: \`${fullPath}\`` };
+  }
+
+  let csvText;
+  try {
+    csvText = fs.readFileSync(fullPath, "utf8");
+  } catch (error) {
+    return { error: `Unable to read file: ${error?.message || String(error)}` };
+  }
+
+  const rows = parseCsvRows(csvText);
+  if (!rows.length) {
+    return { error: "CSV appears to be empty." };
+  }
+
+  const header = rows[0].map((value) => String(value || "").trim().toLowerCase());
+  const characterIndex = header.indexOf("character");
+  const seriesIndex = header.indexOf("series");
+  const wishlistsIndex = header.indexOf("wishlists");
+
+  if (characterIndex === -1 || seriesIndex === -1 || wishlistsIndex === -1) {
+    return {
+      error:
+        "CSV must include `character`, `series`, and `wishlists` columns in the header.",
+    };
+  }
+
+  const upsertCard = global.db.db.prepare(`
+    INSERT INTO karuta_cards (name, series, display_name, display_series, wishlist, card_url)
+    VALUES (?, ?, ?, ?, ?, '')
+    ON CONFLICT(name, series) DO UPDATE SET
+      wishlist = excluded.wishlist,
+      display_name = CASE
+        WHEN COALESCE(excluded.display_name, '') <> '' THEN excluded.display_name
+        ELSE karuta_cards.display_name
+      END,
+      display_series = CASE
+        WHEN COALESCE(excluded.display_series, '') <> '' THEN excluded.display_series
+        ELSE karuta_cards.display_series
+      END
+  `);
+
+  const applyImport = global.db.db.transaction((dataRows) => {
+    let imported = 0;
+    let skipped = 0;
+
+    for (const sourceRow of dataRows) {
+      const displayName = String(sourceRow[characterIndex] || "").trim();
+      const displaySeries = String(sourceRow[seriesIndex] || "").trim();
+      const wishlist = parseWishlistValue(sourceRow[wishlistsIndex]);
+
+      const name = normalizeKarutaKey(displayName);
+      const series = normalizeKarutaKey(displaySeries);
+
+      if (!displayName || !displaySeries || !name || !series) {
+        skipped += 1;
+        continue;
+      }
+
+      upsertCard.run(name, series, displayName, displaySeries, wishlist);
+      imported += 1;
+    }
+
+    return { imported, skipped };
+  });
+
+  try {
+    const { imported, skipped } = applyImport(rows.slice(1));
+    return { imported, skipped, totalRows: Math.max(0, rows.length - 1) };
+  } catch (error) {
+    return { error: `Import failed: ${error?.message || String(error)}` };
+  }
+}
 
 function isDevAllowed(userId) {
   const owners = Array.isArray(global.ownerIds) ? global.ownerIds : [];
@@ -1257,6 +1405,17 @@ module.exports = {
                   { name: "Gemma3", value: "gemma3" },
                 ),
             ),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("spreadsheet")
+            .setDescription("Import Karuta CSV data into karuta_cards")
+            .addStringOption((option) =>
+              option
+                .setName("file")
+                .setDescription("Absolute CSV file path")
+                .setRequired(true),
+            ),
         ),
     ),
   async execute(interaction) {
@@ -1340,6 +1499,30 @@ module.exports = {
 
       await interaction.reply({
         content: `Karuta recognition mode set to: \`${mode}\``,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === "karuta" && subcommand === "spreadsheet") {
+      const file = String(interaction.options.getString("file", true) || "").trim();
+      const result = importKarutaSpreadsheet(file);
+
+      if (result?.error) {
+        await interaction.reply({
+          content: `Karuta spreadsheet import failed.\n-# ${result.error}`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.reply({
+        content: [
+          "Karuta spreadsheet import complete.",
+          `Rows processed: \`${result.totalRows}\``,
+          `Imported: \`${result.imported}\``,
+          `Skipped: \`${result.skipped}\``,
+        ].join("\n"),
         flags: MessageFlags.Ephemeral,
       });
       return;
