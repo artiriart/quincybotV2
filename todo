@@ -29,6 +29,8 @@
     - (test) weekly bundle box reminders
     - (test) multiplier stats
     - (edit) do sync daily aka make it sync, not one time thing (sync = check which combinations not in table, fetch simulator if needed). also startup sync is ran daily too
+    - /dev edit multiplier doesnt take dank items
+    - for coins dont save Prestige 17 / omega stuff to dank_multipliers table too.
 
 - utility:
     - list all reminders command

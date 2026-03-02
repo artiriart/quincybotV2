@@ -734,11 +734,23 @@ function listDankMultiplierTypes() {
 function listDankMultipliersByType(type) {
   return global.db.safeQuery(
     `
-    SELECT name, MAX(amount) AS amount, MAX(emoji) AS emoji, MIN(description) AS description
+    SELECT
+      name,
+      MAX(amount) AS amount,
+      MAX(emoji) AS emoji,
+      MIN(description) AS description,
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM dank_items i
+          WHERE LOWER(i.name) = LOWER(dank_multipliers.name)
+        ) THEN 0
+        ELSE 1
+      END AS item_rank
     FROM dank_multipliers
     WHERE type = ?
     GROUP BY name
-    ORDER BY LOWER(name) ASC
+    ORDER BY item_rank ASC, LOWER(name) ASC
     `,
     [type],
   );

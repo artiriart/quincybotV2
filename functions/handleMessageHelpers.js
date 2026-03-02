@@ -327,6 +327,7 @@ function shouldIgnoreInMaster(type, name) {
     );
   }
   if (type === "coins") {
+    if (lower.includes("omega") || lower.includes("prestige")) return true;
     if (lower.includes("badge")) return true;
     if (/\d+\s*d\s*streak/i.test(lower)) return true;
   }
@@ -423,6 +424,20 @@ function indexDankMultiplierSnapshot(userId, type, description) {
     global.db.safeQuery(
       `INSERT INTO dank_selected_multipliers (user_id, name, type) VALUES (?, ?, ?) ON CONFLICT(user_id, name, type) DO NOTHING`,
       [userId, name, normalizedType],
+    );
+  }
+
+  if (normalizedType === "coins") {
+    // Keep coins master table aligned with XP behavior by excluding permanent tiers.
+    global.db.safeQuery(
+      `
+      DELETE FROM dank_multipliers
+      WHERE type = 'coins'
+        AND (
+          LOWER(name) LIKE '%omega%'
+          OR LOWER(name) LIKE '%prestige%'
+        )
+      `,
     );
   }
 
