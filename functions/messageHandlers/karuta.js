@@ -125,7 +125,7 @@ async function handleKarutaDropRecognition(message, settings) {
 
     const knownCard = global.db.safeQuery(
       `
-      SELECT 1
+      SELECT wishlist
       FROM karuta_cards
       WHERE name = ? AND series = ?
       LIMIT 1
@@ -149,8 +149,11 @@ async function handleKarutaDropRecognition(message, settings) {
     }
     const mentionText = mentions.length ? mentions.join(", ") : "None";
 
+    const wlText = knownCard
+      ? ` · ♡${Number(knownCard.wishlist || 0).toLocaleString()}`
+      : ` ${dbEmoji}`;
     lines.push(
-      `${numberEmojis[i] || `${i + 1}.`} **${displayName}** (${displaySeries})${knownCard ? "" : ` ${dbEmoji}`}`.trim(),
+      `${numberEmojis[i] || `${i + 1}.`} **${displayName}** (${displaySeries})${wlText}`.trim(),
     );
     lines.push(`-# Series Wishlist: ${mentionText}`);
   }
@@ -240,7 +243,6 @@ async function handleKarutaMessage(message, settings) {
       `,
       [name, series, displayName, displaySeries, wishlist, cardUrl],
     );
-
   };
 
   if (title === "Character Lookup") {
