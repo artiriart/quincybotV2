@@ -4,6 +4,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  TextDisplayBuilder,
 } = require("discord.js");
 const {
   extractUserFromMention,
@@ -435,11 +436,11 @@ async function handleDankMessage(message, oldMessage, settings) {
 
     const container = new ContainerBuilder().addSectionComponents(
       new SectionBuilder()
-        .addTextDisplayComponents((td) => {
-          td.setContent(
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
             `### ${host}'s Coin Nuke dropped\n# ⏣ ${totalPayout.toLocaleString()}`,
-          );
-        })
+          ),
+        )
         .setButtonAccessory(
           new ButtonBuilder()
             .setLabel("Add to tracker")
