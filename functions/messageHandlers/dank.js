@@ -380,7 +380,7 @@ async function handleDankMessage(message, oldMessage, settings) {
 
   const lastComponent = getLast(message?.components);
   const hasFishing = lastComponent?.components?.some(
-    (c) => c?.type === 10 && c?.content?.includes("You caught something!"),
+    (c) => c?.type === 9 && c?.components?.[0]?.content?.includes("You caught something!"),
   );
 
   if (hasFishing) {
@@ -388,8 +388,8 @@ async function handleDankMessage(message, oldMessage, settings) {
     if (!user || !shouldTrackDankStats(settings.getUserToggle, user.id)) return;
 
     const fishingText = lastComponent.components?.find(
-      (c) => c?.type === 10 && c?.content?.includes("You caught something!"),
-    )?.content;
+      (c) => c?.type === 9 && c?.components?.[0]?.content?.includes("You caught something!"),
+    )?.components?.[0]?.content;
     const fishingItem = getLast(fishingText?.split("\n"))
       ?.split("- ")?.[1]
       ?.trim();
