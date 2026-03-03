@@ -12,26 +12,6 @@ const { buttonHandlers } = require("../../functions/interactions/button");
 const { selectMenuHandlers } = require("../../functions/interactions/selectMenu");
 
 const ROUTE_PREFIX = "danknuke";
-const VIEW_STATE_TYPE = "dank_nuke_view";
-
-function createViewToken(userId) {
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${userId.slice(-6)}${Date.now().toString(36)}${rand}`.slice(0, 40);
-}
-
-function saveViewState(token, state) {
-  global.db.upsertState(VIEW_STATE_TYPE, JSON.stringify(state), token, false);
-}
-
-function loadViewState(token) {
-  const raw = global.db.getState(VIEW_STATE_TYPE, token);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
 
 function parseEmojiValue(raw) {
   const text = String(raw || "").trim();
@@ -241,7 +221,7 @@ function buildNukePanelPayload(viewState, notice = "") {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:remove:${viewState.token}`)
+          .setCustomId(`${ROUTE_PREFIX}:remove:${viewState.userId}`)
           .setPlaceholder("Remove users from session records")
           .setMinValues(1)
           .setMaxValues(Math.max(1, Math.min(25, entries.length || 1)))
@@ -267,21 +247,21 @@ function buildNukePanelPayload(viewState, notice = "") {
       new ActionRowBuilder().addComponents(
         applyButtonEmoji(
           new ButtonBuilder()
-            .setCustomId(`${ROUTE_PREFIX}:share:${viewState.token}`)
+            .setCustomId(`${ROUTE_PREFIX}:share:${viewState.userId}`)
             .setStyle(ButtonStyle.Secondary)
             .setLabel("Friends share"),
           clipboardEmoji,
         ),
         applyButtonEmoji(
           new ButtonBuilder()
-            .setCustomId(`${ROUTE_PREFIX}:donate:${viewState.token}`)
+            .setCustomId(`${ROUTE_PREFIX}:donate:${viewState.userId}`)
             .setStyle(ButtonStyle.Secondary)
             .setLabel("/serverevents donate"),
           clipboardEmoji,
         ),
         applyButtonEmoji(
           new ButtonBuilder()
-            .setCustomId(`${ROUTE_PREFIX}:clear:${viewState.token}`)
+            .setCustomId(`${ROUTE_PREFIX}:clear:${viewState.userId}`)
             .setStyle(ButtonStyle.Danger)
             .setLabel("Clear"),
           trash2Emoji,
@@ -350,15 +330,13 @@ function applyClaimToUser(userId, claimEntries) {
 }
 
 async function runDankNuke(interaction) {
-  const token = createViewToken(interaction.user.id);
-  const state = { token, userId: interaction.user.id };
-  saveViewState(token, state);
+  const state = { userId: interaction.user.id };
   await interaction.reply(buildNukePanelPayload(state));
 }
 
 async function handleDankNukeButton(interaction) {
   const customId = String(interaction.customId || "");
-  const [, action, token] = customId.split(":");
+  const [, action, ownerId] = customId.split(":");
 
   if (action === "claim") {
     const claimEntries = readClaimEntriesFromState(interaction.message?.id);
@@ -378,15 +356,15 @@ async function handleDankNukeButton(interaction) {
     return;
   }
 
-  if (!token) return;
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  if (!ownerId) return;
+  if (String(ownerId) !== String(interaction.user.id)) {
     await interaction.reply({
-      content: "This nuke panel expired. Run `/dank nuke` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
+  const state = { userId: String(ownerId) };
 
   if (action === "share" || action === "donate") {
     const { revenue } = loadSessionData(state.userId);
@@ -421,26 +399,25 @@ async function handleDankNukeButton(interaction) {
       [state.userId],
     );
 
-    await interaction.reply({
-      content: "Session nuke data cleared.",
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.reply(
+      buildNukePanelPayload(state, "Session nuke data cleared."),
+    );
   }
 }
 
 async function handleDankNukeSelect(interaction) {
   const customId = String(interaction.customId || "");
-  const [, action, token] = customId.split(":");
-  if (action !== "remove" || !token) return;
+  const [, action, ownerId] = customId.split(":");
+  if (action !== "remove" || !ownerId) return;
 
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  if (String(ownerId) !== String(interaction.user.id)) {
     await interaction.reply({
-      content: "This nuke panel expired. Run `/dank nuke` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
+  const state = { userId: String(ownerId) };
 
   const selected = new Set((interaction.values || []).map((v) => String(v || "").trim()));
   if (!selected.size) {

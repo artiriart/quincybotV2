@@ -16,7 +16,6 @@ const { buttonHandlers } = require("../functions/interactions/button");
 const { modalHandlers } = require("../functions/interactions/modal");
 
 const ROUTE_PREFIX = "anigamerem";
-const VIEW_STATE_TYPE = "anigame_reminder_view";
 const ITEMS_PER_PAGE = 5;
 const CARD_NAME_INPUT_ID = "card_name";
 const RARITY_INPUT_ID = "rarity";
@@ -34,23 +33,42 @@ const REMINDER_TYPES = {
   },
 };
 
-function createViewToken(userId) {
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${userId.slice(-6)}${Date.now().toString(36)}${rand}`.slice(0, 40);
+function encodePart(value) {
+  return encodeURIComponent(String(value ?? ""));
 }
 
-function saveViewState(token, state) {
-  global.db.upsertState(VIEW_STATE_TYPE, JSON.stringify(state), token, false);
-}
-
-function loadViewState(token) {
-  const raw = global.db.getState(VIEW_STATE_TYPE, token);
-  if (!raw) return null;
+function decodePart(value) {
   try {
-    return JSON.parse(raw);
+    return decodeURIComponent(String(value ?? ""));
   } catch {
-    return null;
+    return "";
   }
+}
+
+function buildReminderCustomId(viewState, action, page = viewState.page, extra = "") {
+  const parts = [
+    ROUTE_PREFIX,
+    action,
+    String(viewState.userId || ""),
+    encodePart(viewState.type || "fragment_shop"),
+    String(Number(page || 0)),
+  ];
+  if (extra !== "") parts.push(String(extra));
+  return parts.join(":");
+}
+
+function parseReminderCustomId(customId) {
+  const [route, action, userId, typeEnc, pageRaw, extra] = String(customId || "").split(":");
+  if (route !== ROUTE_PREFIX || !action || !userId) return null;
+  return {
+    action,
+    state: {
+      userId: String(userId),
+      type: decodePart(typeEnc) || "fragment_shop",
+      page: Math.max(0, Number(pageRaw || 0)),
+    },
+    extra: String(extra || ""),
+  };
 }
 
 function parseEmojiValue(raw) {
@@ -277,8 +295,18 @@ function buildReminderPanelPayload(viewState, ephemeral = false, notice = "") {
         .setButtonAccessory(
           (button) => {
             applyButtonEmoji(
-              button
-                .setCustomId(`${ROUTE_PREFIX}:switch:${viewState.token}`)
+                button
+                .setCustomId(
+                  buildReminderCustomId(
+                    {
+                      ...viewState,
+                      type: typeMeta.switchTo,
+                      page: 0,
+                    },
+                    "page",
+                    0,
+                  ),
+                )
                 .setStyle(ButtonStyle.Secondary)
                 .setLabel(typeMeta.switchLabel),
               copyEmoji,
@@ -329,7 +357,12 @@ function buildReminderPanelPayload(viewState, ephemeral = false, notice = "") {
           applyButtonEmoji(
             new ButtonBuilder()
               .setCustomId(
-                `${ROUTE_PREFIX}:remove:${viewState.token}:${page * ITEMS_PER_PAGE + i}`,
+                buildReminderCustomId(
+                  viewState,
+                  "remove",
+                  page,
+                  page * ITEMS_PER_PAGE + i,
+                ),
               )
               .setStyle(ButtonStyle.Danger)
               .setLabel("Remove Reminder"),
@@ -345,27 +378,27 @@ function buildReminderPanelPayload(viewState, ephemeral = false, notice = "") {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:prev:${viewState.token}`)
+          .setCustomId(buildReminderCustomId(viewState, "page", page - 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(leftEmoji)
           .setDisabled(page <= 0),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:page:${viewState.token}`)
+          .setCustomId(buildReminderCustomId(viewState, "page", page))
           .setStyle(ButtonStyle.Secondary)
           .setLabel(`${page + 1}/${totalPages}`)
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:next:${viewState.token}`)
+          .setCustomId(buildReminderCustomId(viewState, "page", page + 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(rightEmoji)
           .setDisabled(page >= totalPages - 1),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:sep:${viewState.token}`)
+          .setCustomId(buildReminderCustomId(viewState, "sep", page))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(sepEmoji)
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:add:${viewState.token}`)
+          .setCustomId(buildReminderCustomId(viewState, "add", page))
           .setStyle(ButtonStyle.Primary)
           .setLabel("Add Reminder")
           .setEmoji(addEmoji),
@@ -376,31 +409,16 @@ function buildReminderPanelPayload(viewState, ephemeral = false, notice = "") {
     content: "",
     components: [container],
     flags: (ephemeral ? MessageFlags.Ephemeral : 0) | MessageFlags.IsComponentsV2,
-    state: {
-      ...viewState,
-      type: stateType,
-      page,
-    },
   };
 }
 
 async function runReminderList(interaction) {
-  const token = createViewToken(interaction.user.id);
   const state = {
-    token,
     userId: interaction.user.id,
     type: "fragment_shop",
     page: 0,
   };
-  saveViewState(token, state);
-
-  const payload = buildReminderPanelPayload(state, true);
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.reply(payload);
+  await interaction.reply(buildReminderPanelPayload(state, true));
 }
 
 async function runReminderSet(interaction) {
@@ -457,31 +475,23 @@ async function runReminderSet(interaction) {
 }
 
 async function handleReminderButton(interaction) {
-  const customId = String(interaction.customId || "");
-  const [, action, token, extra] = customId.split(":");
-  if (!token) return;
-
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  const parsed = parseReminderCustomId(interaction.customId);
+  if (!parsed) return;
+  const { action, state, extra } = parsed;
+  if (state.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This reminder panel expired. Run `/anigame reminders list` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  if (action === "prev") {
-    state.page = Math.max(0, Number(state.page || 0) - 1);
-  } else if (action === "next") {
-    state.page = Number(state.page || 0) + 1;
-  } else if (action === "switch") {
-    const current = REMINDER_TYPES[state.type] ? state.type : "fragment_shop";
-    state.type = REMINDER_TYPES[current].switchTo;
-    state.page = 0;
+  if (action === "page") {
+    state.page = Math.max(0, Number(state.page || 0));
   } else if (action === "add") {
     const isClan = state.type === "clan_shop";
     const modal = new ModalBuilder()
-      .setCustomId(`${ROUTE_PREFIX}:add_modal:${token}`)
+      .setCustomId(buildReminderCustomId(state, "add_modal", state.page))
       .setTitle(isClan ? "Add Clan Shop Reminder" : "Add Fragment Shop Reminder")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -519,10 +529,6 @@ async function handleReminderButton(interaction) {
         false,
         "That reminder no longer exists.",
       );
-      if (payload?.state) {
-        saveViewState(token, payload.state);
-        delete payload.state;
-      }
       await interaction.update(payload);
       return;
     }
@@ -545,35 +551,22 @@ async function handleReminderButton(interaction) {
       false,
       `Removed reminder: ${target.card_name}${state.type === "clan_shop" ? ` (${toRarityLabel(targetRarity)})` : ""}.`,
     );
-    if (payload?.state) {
-      saveViewState(token, payload.state);
-      delete payload.state;
-    }
-
     await interaction.update(payload);
     return;
   } else {
     return;
   }
 
-  const payload = buildReminderPanelPayload(state);
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.update(payload);
+  await interaction.update(buildReminderPanelPayload(state));
 }
 
 async function handleReminderModal(interaction) {
-  const customId = String(interaction.customId || "");
-  const [, action, token] = customId.split(":");
-  if (action !== "add_modal" || !token) return;
-
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  const parsed = parseReminderCustomId(interaction.customId);
+  if (!parsed || parsed.action !== "add_modal") return;
+  const state = parsed.state;
+  if (state.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This reminder panel expired. Run `/anigame reminders list` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -631,12 +624,7 @@ async function handleReminderModal(interaction) {
       ? `Added reminder: ${card.name}${state.type === "clan_shop" ? ` (${toRarityLabel(rarity)})` : ""}.`
       : `Reminder already exists: ${card.name}${state.type === "clan_shop" ? ` (${toRarityLabel(rarity)})` : ""}.`,
   );
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.reply(payload);
+  await interaction.update(payload);
 }
 
 if (!buttonHandlers.has(ROUTE_PREFIX)) {

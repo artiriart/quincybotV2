@@ -18,7 +18,6 @@ const { recognizeKarutaCardsFromUrl } = require("../functions/karutaOcr");
 const { recognizeKarutaCardsWithGemmaFromUrl } = require("../functions/karutaGemma");
 
 const ROUTE_PREFIX = "karutawish";
-const VIEW_STATE_TYPE = "karuta_wishlist_view";
 const KARUTA_RECOG_STATE_TYPE = "karuta_recognition_settings";
 const ITEMS_PER_PAGE = 5;
 const CHARACTER_INPUT_ID = "character_name";
@@ -37,23 +36,42 @@ function getKarutaRecognitionMode() {
   return "tesseract";
 }
 
-function createViewToken(userId) {
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${userId.slice(-6)}${Date.now().toString(36)}${rand}`.slice(0, 40);
+function encodePart(value) {
+  return encodeURIComponent(String(value ?? ""));
 }
 
-function saveViewState(token, state) {
-  global.db.upsertState(VIEW_STATE_TYPE, JSON.stringify(state), token, false);
-}
-
-function loadViewState(token) {
-  const raw = global.db.getState(VIEW_STATE_TYPE, token);
-  if (!raw) return null;
+function decodePart(value) {
   try {
-    return JSON.parse(raw);
+    return decodeURIComponent(String(value ?? ""));
   } catch {
-    return null;
+    return "";
   }
+}
+
+function buildWishlistCustomId(viewState, action, page = viewState.page, extra = "") {
+  const parts = [
+    ROUTE_PREFIX,
+    action,
+    String(viewState.userId || ""),
+    encodePart(viewState.guildId || "global"),
+    String(Number(page || 0)),
+  ];
+  if (extra !== "") parts.push(String(extra));
+  return parts.join(":");
+}
+
+function parseWishlistCustomId(customId) {
+  const [route, action, userId, guildIdEnc, pageRaw, extra] = String(customId || "").split(":");
+  if (route !== ROUTE_PREFIX || !action || !userId) return null;
+  return {
+    action,
+    state: {
+      userId: String(userId),
+      guildId: decodePart(guildIdEnc) || "global",
+      page: Math.max(0, Number(pageRaw || 0)),
+    },
+    extra: String(extra || ""),
+  };
 }
 
 function normalizeKarutaKey(value) {
@@ -290,7 +308,12 @@ function buildWishlistPanelPayload(viewState, ephemeral = false, notice = "") {
           applyButtonEmoji(
             new ButtonBuilder()
               .setCustomId(
-                `${ROUTE_PREFIX}:editmin:${viewState.token}:${page * ITEMS_PER_PAGE + i}`,
+                buildWishlistCustomId(
+                  viewState,
+                  "editmin",
+                  page,
+                  page * ITEMS_PER_PAGE + i,
+                ),
               )
               .setStyle(ButtonStyle.Secondary)
               .setLabel("Edit Min Wishlist"),
@@ -301,7 +324,12 @@ function buildWishlistPanelPayload(viewState, ephemeral = false, notice = "") {
           applyButtonEmoji(
             new ButtonBuilder()
               .setCustomId(
-                `${ROUTE_PREFIX}:remove:${viewState.token}:${page * ITEMS_PER_PAGE + i}`,
+                buildWishlistCustomId(
+                  viewState,
+                  "remove",
+                  page,
+                  page * ITEMS_PER_PAGE + i,
+                ),
               )
               .setStyle(ButtonStyle.Danger)
               .setLabel("Remove Reminder"),
@@ -317,27 +345,27 @@ function buildWishlistPanelPayload(viewState, ephemeral = false, notice = "") {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:prev:${viewState.token}`)
+          .setCustomId(buildWishlistCustomId(viewState, "page", page - 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(leftEmoji)
           .setDisabled(page <= 0),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:page:${viewState.token}`)
+          .setCustomId(buildWishlistCustomId(viewState, "page", page))
           .setStyle(ButtonStyle.Secondary)
           .setLabel(`${page + 1}/${totalPages}`)
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:next:${viewState.token}`)
+          .setCustomId(buildWishlistCustomId(viewState, "page", page + 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(rightEmoji)
           .setDisabled(page >= totalPages - 1),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:sep:${viewState.token}`)
+          .setCustomId(buildWishlistCustomId(viewState, "sep", page))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(sepEmoji)
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:add:${viewState.token}`)
+          .setCustomId(buildWishlistCustomId(viewState, "add", page))
           .setStyle(ButtonStyle.Primary)
           .setLabel("Add Reminder")
           .setEmoji(addEmoji),
@@ -348,53 +376,35 @@ function buildWishlistPanelPayload(viewState, ephemeral = false, notice = "") {
     content: "",
     components: [container],
     flags: (ephemeral ? MessageFlags.Ephemeral : 0) | MessageFlags.IsComponentsV2,
-    state: {
-      ...viewState,
-      page,
-    },
   };
 }
 
 async function runWishlistList(interaction) {
-  const token = createViewToken(interaction.user.id);
   const state = {
-    token,
     userId: interaction.user.id,
     guildId: interaction.guildId || "global",
     page: 0,
   };
-  saveViewState(token, state);
-
-  const payload = buildWishlistPanelPayload(state, true);
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.reply(payload);
+  await interaction.reply(buildWishlistPanelPayload(state, true));
 }
 
 async function handleWishlistButton(interaction) {
-  const customId = String(interaction.customId || "");
-  const [, action, token, extra] = customId.split(":");
-  if (!token) return;
-
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  const parsed = parseWishlistCustomId(interaction.customId);
+  if (!parsed) return;
+  const { action, state, extra } = parsed;
+  if (state.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This wishlist panel expired. Run `/karuta wishlist` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  if (action === "prev") {
-    state.page = Math.max(0, Number(state.page || 0) - 1);
-  } else if (action === "next") {
-    state.page = Number(state.page || 0) + 1;
+  if (action === "page") {
+    state.page = Math.max(0, Number(state.page || 0));
   } else if (action === "add") {
     const modal = new ModalBuilder()
-      .setCustomId(`${ROUTE_PREFIX}:add_modal:${token}`)
+      .setCustomId(buildWishlistCustomId(state, "add_modal", state.page))
       .setTitle("Add Karuta Wishlist")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -418,10 +428,6 @@ async function handleWishlistButton(interaction) {
 
     if (!target?.series) {
       const payload = buildWishlistPanelPayload(state, false, "That entry no longer exists.");
-      if (payload?.state) {
-        saveViewState(token, payload.state);
-        delete payload.state;
-      }
       await interaction.update(payload);
       return;
     }
@@ -431,7 +437,7 @@ async function handleWishlistButton(interaction) {
       Number.parseInt(String(target?.wishlist_min || 0), 10) || 0,
     );
     const modal = new ModalBuilder()
-      .setCustomId(`${ROUTE_PREFIX}:edit_min_modal:${token}:${rowIndex}`)
+      .setCustomId(buildWishlistCustomId(state, "edit_min_modal", state.page, rowIndex))
       .setTitle("Edit Min Wishlist")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -456,10 +462,6 @@ async function handleWishlistButton(interaction) {
 
     if (!target?.series) {
       const payload = buildWishlistPanelPayload(state, false, "That entry no longer exists.");
-      if (payload?.state) {
-        saveViewState(token, payload.state);
-        delete payload.state;
-      }
       await interaction.update(payload);
       return;
     }
@@ -478,33 +480,22 @@ async function handleWishlistButton(interaction) {
       false,
       `Removed reminder: ${labelName}.`,
     );
-    if (payload?.state) {
-      saveViewState(token, payload.state);
-      delete payload.state;
-    }
     await interaction.update(payload);
     return;
   } else {
     return;
   }
 
-  const payload = buildWishlistPanelPayload(state);
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-  await interaction.update(payload);
+  await interaction.update(buildWishlistPanelPayload(state));
 }
 
 async function handleWishlistModal(interaction) {
-  const customId = String(interaction.customId || "");
-  const [, action, token, extra] = customId.split(":");
-  if (!token) return;
-
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  const parsed = parseWishlistCustomId(interaction.customId);
+  if (!parsed) return;
+  const { action, state, extra } = parsed;
+  if (state.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This wishlist panel expired. Run `/karuta wishlist` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -522,11 +513,7 @@ async function handleWishlistModal(interaction) {
         true,
         "That entry no longer exists.",
       );
-      if (payload?.state) {
-        saveViewState(token, payload.state);
-        delete payload.state;
-      }
-      await interaction.reply(payload);
+      await interaction.update(payload);
       return;
     }
 
@@ -557,11 +544,7 @@ async function handleWishlistModal(interaction) {
       true,
       `Updated min wishlist: ${label} -> ${parsedMin}.`,
     );
-    if (payload?.state) {
-      saveViewState(token, payload.state);
-      delete payload.state;
-    }
-    await interaction.reply(payload);
+    await interaction.update(payload);
     return;
   }
 
@@ -605,12 +588,7 @@ async function handleWishlistModal(interaction) {
     true,
     added ? `Added reminder: ${displayName}.` : `Reminder already exists: ${displayName}.`,
   );
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.reply(payload);
+  await interaction.update(payload);
 }
 
 if (!buttonHandlers.has(ROUTE_PREFIX)) {

@@ -17,26 +17,18 @@ const { modalHandlers } = require("../functions/interactions/modal");
 const { loadPresetDraft, parseEmojiValue } = require("../functions/swsPresetUtils");
 
 const ROUTE_PREFIX = "sws";
-const VIEW_STATE_TYPE = "sws_preset_view";
 const PRESET_DESCRIPTION_INPUT_ID = "preset_description";
 const MAX_PRESETS_IN_PANEL = 5;
 
-function createViewToken(userId) {
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `${String(userId || "").slice(-6)}${Date.now().toString(36)}${rand}`.slice(0, 45);
+function encodePart(value) {
+  return encodeURIComponent(String(value ?? ""));
 }
 
-function saveViewState(token, state) {
-  global.db.upsertState(VIEW_STATE_TYPE, JSON.stringify(state), token, false);
-}
-
-function loadViewState(token) {
-  const raw = global.db.getState(VIEW_STATE_TYPE, token);
-  if (!raw) return null;
+function decodePart(value) {
   try {
-    return JSON.parse(raw);
+    return decodeURIComponent(String(value ?? ""));
   } catch {
-    return null;
+    return "";
   }
 }
 
@@ -85,7 +77,9 @@ function getButtonEmoji(name, fallback) {
 }
 
 function buildPresetPanelPayload(viewState, notice = "") {
-  const presets = Array.isArray(viewState?.presets) ? viewState.presets : [];
+  const presets = Array.isArray(viewState?.presets)
+    ? viewState.presets
+    : listPresets(viewState.userId);
   const visiblePresets = presets.slice(0, MAX_PRESETS_IN_PANEL);
   const container = new ContainerBuilder()
     .addTextDisplayComponents(
@@ -130,12 +124,16 @@ function buildPresetPanelPayload(viewState, notice = "") {
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(`${ROUTE_PREFIX}:presets:output:${viewState.token}:${index}`)
+            .setCustomId(
+              `${ROUTE_PREFIX}:presets:output:${viewState.userId}:${encodePart(preset.name)}`,
+            )
             .setStyle(ButtonStyle.Primary)
             .setLabel("Output IDs")
             .setEmoji(outputEmoji),
           new ButtonBuilder()
-            .setCustomId(`${ROUTE_PREFIX}:presets:delete:${viewState.token}:${index}`)
+            .setCustomId(
+              `${ROUTE_PREFIX}:presets:delete:${viewState.userId}:${encodePart(preset.name)}`,
+            )
             .setStyle(ButtonStyle.Secondary)
             .setLabel("Delete preset")
             .setEmoji(deleteEmoji),
@@ -222,19 +220,10 @@ function buildEquipCommandOutputPayload(preset) {
 
 async function handlePresetButtons(interaction) {
   const customId = String(interaction.customId || "");
-  const [, scope, action, token, indexRaw] = customId.split(":");
-  if (scope !== "presets" || !action || !token) return;
+  const [, scope, action, ownerId, presetNameEnc] = customId.split(":");
+  if (scope !== "presets" || !action || !ownerId) return;
 
-  const viewState = loadViewState(token);
-  if (!viewState) {
-    await interaction.reply({
-      content: "This presets panel expired. Run `/7w7 presets` again.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  if (String(viewState.userId || "") !== String(interaction.user.id || "")) {
+  if (String(ownerId || "") !== String(interaction.user.id || "")) {
     await interaction.reply({
       content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
@@ -242,11 +231,13 @@ async function handlePresetButtons(interaction) {
     return;
   }
 
-  const index = Number.parseInt(String(indexRaw || ""), 10);
-  const selected = Number.isFinite(index) ? viewState.presets?.[index] : null;
+  const presetName = decodePart(presetNameEnc || "");
+  const selected = listPresets(interaction.user.id).find(
+    (preset) => String(preset.name || "").toLowerCase() === presetName.toLowerCase(),
+  );
   if (!selected) {
     await interaction.reply({
-      content: "That preset no longer exists in this panel.",
+      content: "That preset no longer exists.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -264,17 +255,11 @@ async function handlePresetButtons(interaction) {
     [interaction.user.id, selected.name],
   );
 
-  const refreshed = listPresets(interaction.user.id);
-  const updatedViewState = {
-    token,
-    userId: interaction.user.id,
-    presets: refreshed,
-    createdAt: Date.now(),
-  };
-  saveViewState(token, updatedViewState);
-
   await interaction.update(
-    buildPresetPanelPayload(updatedViewState, `Deleted preset: ${selected.name}`),
+    buildPresetPanelPayload(
+      { userId: interaction.user.id, presets: listPresets(interaction.user.id) },
+      `Deleted preset: ${selected.name}`,
+    ),
   );
 }
 
@@ -600,15 +585,10 @@ module.exports = {
       }
     }
 
-    const token = createViewToken(interaction.user.id);
     const viewState = {
-      token,
       userId: interaction.user.id,
       presets,
-      createdAt: Date.now(),
     };
-    saveViewState(token, viewState);
-
     await interaction.reply(buildPresetPanelPayload(viewState));
   },
 };

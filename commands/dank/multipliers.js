@@ -16,12 +16,10 @@ const { buttonHandlers } = require("../../functions/interactions/button");
 const { selectMenuHandlers } = require("../../functions/interactions/selectMenu");
 const { modalHandlers } = require("../../functions/interactions/modal");
 
-const MULTIPLIER_VIEW_STATE_TYPE = "dank_multiplier_view";
 const MULTIPLIER_ROUTE_PREFIX = "dankmulti";
 const MULTIPLIER_PREMIUM_STATE_TYPE = "dank_multiplier_premium_global";
 const MULTIPLIER_PAGE_SIZE = 20;
 const LEVEL_MODAL_CUSTOM_ID_PREFIX = `${MULTIPLIER_ROUTE_PREFIX}:level_modal`;
-const LEVEL_VIEW_STATE_TYPE = "dank_level_calc_view";
 const LEVEL_INPUT_START_ID = "level_start";
 const LEVEL_INPUT_END_ID = "level_end";
 const LEVEL_INPUT_TACO_ID = "level_taco";
@@ -65,42 +63,72 @@ const PREMIUM_TIERS = [
   },
 ];
 
-function createViewToken(userId) {
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${userId.slice(-6)}${Date.now().toString(36)}${rand}`.slice(0, 40);
+function encodePart(value) {
+  return encodeURIComponent(String(value ?? ""));
 }
 
-function saveMultiplierViewState(token, state) {
-  global.db.upsertState(
-    MULTIPLIER_VIEW_STATE_TYPE,
-    JSON.stringify(state),
-    token,
-    false,
-  );
-}
-
-function loadMultiplierViewState(token) {
-  const raw = global.db.getState(MULTIPLIER_VIEW_STATE_TYPE, token);
-  if (!raw) return null;
+function decodePart(value) {
   try {
-    return JSON.parse(raw);
+    return decodeURIComponent(String(value ?? ""));
   } catch {
-    return null;
+    return "";
   }
 }
 
-function saveLevelViewState(token, state) {
-  global.db.upsertState(LEVEL_VIEW_STATE_TYPE, JSON.stringify(state), token, false);
+function buildEditCustomId(viewState, action, page = viewState.page) {
+  return [
+    MULTIPLIER_ROUTE_PREFIX,
+    action,
+    String(viewState.userId || ""),
+    String(viewState.type || "xp"),
+    String(Math.max(0, Number(page || 0))),
+  ].join(":");
 }
 
-function loadLevelViewState(token) {
-  const raw = global.db.getState(LEVEL_VIEW_STATE_TYPE, token);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+function parseEditCustomId(customId) {
+  const [route, action, ownerId, type, pageRaw] = String(customId || "").split(":");
+  if (route !== MULTIPLIER_ROUTE_PREFIX || !action || !ownerId) return null;
+  return {
+    action,
+    state: {
+      userId: String(ownerId),
+      type: String(type || "xp"),
+      page: Math.max(0, Number(pageRaw || 0)),
+    },
+  };
+}
+
+function buildLevelCustomId(state, action, page = state.page) {
+  return [
+    MULTIPLIER_ROUTE_PREFIX,
+    action,
+    String(state.userId || ""),
+    String(state.sourceType || "xp"),
+    String(Math.max(1, Math.trunc(Number(state.startLevel ?? DEFAULT_LEVEL_START)))),
+    String(Math.max(2, Math.trunc(Number(state.endLevel ?? DEFAULT_LEVEL_END)))),
+    state.tacoEnabled ? "1" : "0",
+    String(Math.max(0, Number(page || 0))),
+  ].join(":");
+}
+
+function parseLevelCustomId(customId) {
+  const [route, action, ownerId, sourceType, startRaw, endRaw, tacoRaw, pageRaw] = String(
+    customId || "",
+  ).split(":");
+  if (route !== MULTIPLIER_ROUTE_PREFIX || !action || !ownerId) return null;
+  const startLevel = Math.max(1, Math.trunc(Number(startRaw || DEFAULT_LEVEL_START)));
+  const endLevel = Math.max(startLevel + 1, Math.trunc(Number(endRaw || DEFAULT_LEVEL_END)));
+  return {
+    action,
+    state: {
+      userId: String(ownerId),
+      sourceType: String(sourceType || "xp"),
+      startLevel,
+      endLevel,
+      tacoEnabled: String(tacoRaw || "0") === "1",
+      page: Math.max(0, Number(pageRaw || 0)),
+    },
+  };
 }
 
 function getMultiplierProfileType(multiplierType) {
@@ -501,7 +529,7 @@ function computeMultiplierResult(multiplierType, profile, knownRows, trackedRows
       if (omega > 0) {
         entries.push({
           name: "Omega",
-          amount: Number((1 + omega * 0.05).toFixed(2)),
+          amount: Number((1 + omega * 0.1).toFixed(2)),
           emoji:
             emojiByName.get("omega") ||
             getMultiplierUiEmoji("dank_omega", null),
@@ -715,17 +743,17 @@ function buildMultiplierEditPayload(viewState) {
     container.addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_prev:${viewState.token}`)
+          .setCustomId(buildEditCustomId(viewState, "edit_prev", page - 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(leftEmoji)
           .setDisabled(page <= 0),
         new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_page:${viewState.token}`)
+          .setCustomId(buildEditCustomId(viewState, "edit_page", page))
           .setStyle(ButtonStyle.Secondary)
           .setLabel(`${page + 1}/${totalPages}`)
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_next:${viewState.token}`)
+          .setCustomId(buildEditCustomId(viewState, "edit_next", page + 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(rightEmoji)
           .setDisabled(page >= totalPages - 1),
@@ -737,7 +765,7 @@ function buildMultiplierEditPayload(viewState) {
     container.addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_select:${viewState.token}`)
+          .setCustomId(buildEditCustomId(viewState, "edit_select", page))
           .setPlaceholder("Select Multiplier")
           .setMinValues(0)
           .setMaxValues(pageRows.length)
@@ -751,7 +779,7 @@ function buildMultiplierEditPayload(viewState) {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:go_calc:${viewState.token}`)
+          .setCustomId(buildEditCustomId(viewState, "go_calc", page))
           .setStyle(ButtonStyle.Primary)
           .setLabel("Go to Calculator"),
       ),
@@ -763,7 +791,7 @@ function buildMultiplierEditPayload(viewState) {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_premium:${viewState.token}`)
+          .setCustomId(buildEditCustomId(viewState, "edit_premium", page))
           .setPlaceholder("Select Premium Tier")
           .setMinValues(1)
           .setMaxValues(1)
@@ -781,7 +809,7 @@ function buildMultiplierEditPayload(viewState) {
         .setButtonAccessory(
           applyButtonEmoji(
             new ButtonBuilder()
-              .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_omega:${viewState.token}`)
+              .setCustomId(buildEditCustomId(viewState, "edit_omega", page))
               .setStyle(ButtonStyle.Secondary)
               .setLabel("Set OMEGA"),
             edit3Emoji,
@@ -799,7 +827,7 @@ function buildMultiplierEditPayload(viewState) {
         .setButtonAccessory(
           applyButtonEmoji(
             new ButtonBuilder()
-              .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_prestige:${viewState.token}`)
+              .setCustomId(buildEditCustomId(viewState, "edit_prestige", page))
               .setStyle(ButtonStyle.Secondary)
               .setLabel("Set Prestige"),
             edit3Emoji,
@@ -816,7 +844,7 @@ function buildMultiplierEditPayload(viewState) {
         )
         .setButtonAccessory(
           new ButtonBuilder()
-            .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:edit_track:${viewState.token}`)
+            .setCustomId(buildEditCustomId(viewState, "edit_track", page))
             .setStyle(profile.track ? ButtonStyle.Success : ButtonStyle.Danger)
             .setLabel(profile.track ? "Tracking: On" : "Tracking: Off"),
         ),
@@ -826,10 +854,6 @@ function buildMultiplierEditPayload(viewState) {
     content: "",
     components: [container],
     flags: MessageFlags.IsComponentsV2,
-    state: {
-      ...viewState,
-      page,
-    },
   };
 }
 
@@ -1023,7 +1047,7 @@ function buildLevelCalculatorPayload(state = {}) {
         )
         .setButtonAccessory(
           new ButtonBuilder()
-            .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:calc_back_xp:${state.token}`)
+            .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:calc_back_xp:${state.sourceType || "xp"}`)
             .setStyle(ButtonStyle.Secondary)
             .setLabel("XP Calculator"),
         ),
@@ -1043,17 +1067,17 @@ function buildLevelCalculatorPayload(state = {}) {
     container.addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:level_prev:${state.token}`)
+          .setCustomId(buildLevelCustomId(state, "level_prev", page - 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(leftEmoji)
           .setDisabled(page <= 0),
         new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:level_page:${state.token}`)
+          .setCustomId(buildLevelCustomId(state, "level_page", page))
           .setStyle(ButtonStyle.Secondary)
           .setLabel(`${page + 1}/${totalPages}`)
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:level_next:${state.token}`)
+          .setCustomId(buildLevelCustomId(state, "level_next", page + 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(rightEmoji)
           .setDisabled(page >= totalPages - 1),
@@ -1071,13 +1095,6 @@ function buildLevelCalculatorPayload(state = {}) {
     content: "",
     components: [container],
     flags: MessageFlags.IsComponentsV2,
-    state: {
-      ...state,
-      startLevel,
-      endLevel,
-      tacoEnabled,
-      page,
-    },
   };
 }
 
@@ -1182,28 +1199,17 @@ function buildOmegaPrestigePayload(calcType, amount, ownerUserId = null) {
 }
 
 async function runDankMultiplierEdit(interaction, type) {
-  const token = createViewToken(interaction.user.id);
   const viewState = {
-    token,
     userId: interaction.user.id,
     type,
     page: 0,
   };
-  const payload = buildMultiplierEditPayload(viewState);
-  if (payload?.state) {
-    saveMultiplierViewState(token, payload.state);
-    delete payload.state;
-  } else {
-    saveMultiplierViewState(token, viewState);
-  }
-  await interaction.reply(payload);
+  await interaction.reply(buildMultiplierEditPayload(viewState));
 }
 
 async function runDankMultiplierCalculate(interaction, type) {
   if (type === "level") {
-    const token = createViewToken(interaction.user.id);
     const initialState = {
-      token,
       userId: interaction.user.id,
       sourceType: "xp",
       startLevel: DEFAULT_LEVEL_START,
@@ -1211,18 +1217,7 @@ async function runDankMultiplierCalculate(interaction, type) {
       tacoEnabled: DEFAULT_TACO_ENABLED,
       page: 0,
     };
-    const payload = buildLevelCalculatorPayload({
-      ...initialState,
-    });
-    if (payload?.state) {
-      saveLevelViewState(token, payload.state);
-      delete payload.state;
-    } else {
-      saveLevelViewState(token, initialState);
-    }
-    await interaction.reply(
-      payload,
-    );
+    await interaction.reply(buildLevelCalculatorPayload(initialState));
     return;
   }
   await interaction.reply(buildMultiplierCalculatePayload(interaction.user.id, type));
@@ -1238,7 +1233,6 @@ async function runDankOmegaPrestigeCalculate(interaction) {
 
 function buildDefaultLevelState(userId, sourceType = "xp") {
   return {
-    token: createViewToken(userId),
     userId,
     sourceType,
     startLevel: DEFAULT_LEVEL_START,
@@ -1264,9 +1258,10 @@ async function handleDankMultiplierButton(interaction) {
     }
 
     const levelState = buildDefaultLevelState(interaction.user.id, type);
-    saveLevelViewState(levelState.token, levelState);
     const modal = new ModalBuilder()
-      .setCustomId(`${LEVEL_MODAL_CUSTOM_ID_PREFIX}:${levelState.token}`)
+      .setCustomId(
+        `${LEVEL_MODAL_CUSTOM_ID_PREFIX}:${interaction.user.id}:${encodePart(type)}`,
+      )
       .setTitle("Level Calculator")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -1299,56 +1294,41 @@ async function handleDankMultiplierButton(interaction) {
   }
 
   if (action === "calc_back_xp") {
-    const levelState = loadLevelViewState(tokenOrType);
-    const type = levelState?.sourceType || "xp";
+    const type = tokenOrType || "xp";
     await interaction.update(buildMultiplierCalculatePayload(interaction.user.id, type));
     return;
   }
 
-  if (action === "level_prev" || action === "level_next") {
-    const levelState = loadLevelViewState(tokenOrType);
-    if (!levelState || levelState.userId !== interaction.user.id) {
+  if (action === "level_prev" || action === "level_next" || action === "level_page") {
+    const parsedLevel = parseLevelCustomId(customId);
+    if (!parsedLevel) return;
+    const levelState = parsedLevel.state;
+    if (levelState.userId !== interaction.user.id) {
       await interaction.reply({
-        content: "This level calculator panel expired. Open it again from XP Calculator.",
+        content: "Only the panel owner can use these controls.",
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
-    levelState.page = Math.max(
-      0,
-      Number(levelState.page || 0) + (action === "level_next" ? 1 : -1),
-    );
-    const payload = buildLevelCalculatorPayload(levelState);
-    if (payload?.state) {
-      saveLevelViewState(tokenOrType, payload.state);
-      delete payload.state;
+    if (action === "level_prev" || action === "level_next") {
+      levelState.page = Math.max(
+        0,
+        Number(levelState.page || 0) + (action === "level_next" ? 1 : -1),
+      );
     }
-    await interaction.update(payload);
-    return;
-  }
-
-  if (action === "level_page") {
+    await interaction.update(buildLevelCalculatorPayload(levelState));
     return;
   }
 
   if (action === "calc_edit") {
     const type = tokenOrType;
     if (!["xp", "coins", "luck"].includes(type)) return;
-    const token = createViewToken(interaction.user.id);
     const viewState = {
-      token,
       userId: interaction.user.id,
       type,
       page: 0,
     };
-    const payload = buildMultiplierEditPayload(viewState);
-    if (payload?.state) {
-      saveMultiplierViewState(token, payload.state);
-      delete payload.state;
-    } else {
-      saveMultiplierViewState(token, viewState);
-    }
-    await interaction.update(payload);
+    await interaction.update(buildMultiplierEditPayload(viewState));
     return;
   }
 
@@ -1361,11 +1341,13 @@ async function handleDankMultiplierButton(interaction) {
   }
 
   if (action === "go_calc") {
-    const token = tokenOrType;
-    const view = loadMultiplierViewState(token);
-    if (!view || view.userId !== interaction.user.id) {
+    const parsed = parseEditCustomId(customId);
+    if (!parsed) return;
+    const view = parsed.state;
+    if (view.userId !== interaction.user.id) {
       await interaction.reply({
-        content: "This multiplier editor expired. Run `/dank multiplier edit` again.",
+        content: "Only the panel owner can use these controls.",
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1373,11 +1355,12 @@ async function handleDankMultiplierButton(interaction) {
     return;
   }
 
-  const token = tokenOrType;
-  const view = loadMultiplierViewState(token);
-  if (!view || view.userId !== interaction.user.id) {
+  const parsed = parseEditCustomId(customId);
+  if (!parsed) return;
+  const { state: view } = parsed;
+  if (view.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This multiplier editor expired. Run `/dank multiplier edit` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -1387,41 +1370,34 @@ async function handleDankMultiplierButton(interaction) {
 
   if (action === "edit_prev") {
     view.page = Math.max(0, Number(view.page || 0) - 1);
-    const payload = buildMultiplierEditPayload(view);
-    if (payload?.state) {
-      saveMultiplierViewState(token, payload.state);
-      delete payload.state;
-    }
-    await interaction.update(payload);
+    await interaction.update(buildMultiplierEditPayload(view));
     return;
   }
 
   if (action === "edit_next") {
     view.page = Number(view.page || 0) + 1;
-    const payload = buildMultiplierEditPayload(view);
-    if (payload?.state) {
-      saveMultiplierViewState(token, payload.state);
-      delete payload.state;
-    }
-    await interaction.update(payload);
+    await interaction.update(buildMultiplierEditPayload(view));
     return;
   }
 
   if (action === "edit_track") {
     profile.track = !profile.track;
     saveMultiplierProfile(view.userId, view.type, profile);
-    const payload = buildMultiplierEditPayload(view);
-    if (payload?.state) {
-      saveMultiplierViewState(token, payload.state);
-      delete payload.state;
-    }
-    await interaction.update(payload);
+    await interaction.update(buildMultiplierEditPayload(view));
     return;
   }
 
   if (action === "edit_omega" || action === "edit_prestige") {
     const modal = new ModalBuilder()
-      .setCustomId(`${MULTIPLIER_ROUTE_PREFIX}:${action}_modal:${token}`)
+      .setCustomId(
+        [
+          MULTIPLIER_ROUTE_PREFIX,
+          `${action}_modal`,
+          String(view.userId),
+          String(view.type),
+          String(Math.max(0, Number(view.page || 0))),
+        ].join(":"),
+      )
       .setTitle(action === "edit_omega" ? "Set OMEGA tier" : "Set Prestige tier")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -1445,14 +1421,12 @@ async function handleDankMultiplierButton(interaction) {
 }
 
 async function handleDankMultiplierSelect(interaction) {
-  const customId = String(interaction.customId || "");
-  const [, action, token] = customId.split(":");
-  if (!action || !token) return;
-
-  const view = loadMultiplierViewState(token);
-  if (!view || view.userId !== interaction.user.id) {
+  const parsed = parseEditCustomId(interaction.customId);
+  if (!parsed) return;
+  const { action, state: view } = parsed;
+  if (view.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This multiplier editor expired. Run `/dank multiplier edit` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -1490,12 +1464,7 @@ async function handleDankMultiplierSelect(interaction) {
     profile.selected = [...new Set([...keep, ...add])];
     saveMultiplierProfile(view.userId, view.type, profile);
     syncManualSelectedMultiplierRows(view.userId, view.type, profile.selected);
-    const payload = buildMultiplierEditPayload(view);
-    if (payload?.state) {
-      saveMultiplierViewState(token, payload.state);
-      delete payload.state;
-    }
-    await interaction.update(payload);
+    await interaction.update(buildMultiplierEditPayload(view));
 
     if (added.length || removed.length) {
       const logIn = global.db.getFeatherEmojiMarkdown("log-in") || "➕";
@@ -1530,21 +1499,19 @@ async function handleDankMultiplierSelect(interaction) {
   if (action === "edit_premium") {
     const premium = String(interaction.values?.[0] || "none");
     setPremiumForAllTypes(view.userId, premium);
-    const payload = buildMultiplierEditPayload(view);
-    if (payload?.state) {
-      saveMultiplierViewState(token, payload.state);
-      delete payload.state;
-    }
-    await interaction.update(payload);
+    await interaction.update(buildMultiplierEditPayload(view));
   }
 }
 
 async function handleDankMultiplierModal(interaction) {
   const customId = String(interaction.customId || "");
-  const [, action, token] = customId.split(":");
-  if (!action || !token) return;
+  const parts = customId.split(":");
+  const [, action] = parts;
+  if (!action) return;
 
   if (action === "level_modal") {
+    const ownerId = String(parts[2] || "");
+    const sourceType = decodePart(parts[3] || "xp") || "xp";
     const startRaw = interaction.fields.getTextInputValue(LEVEL_INPUT_START_ID);
     const endRaw = interaction.fields.getTextInputValue(LEVEL_INPUT_END_ID);
     const tacoRaw = interaction.fields.getTextInputValue(LEVEL_INPUT_TACO_ID);
@@ -1560,35 +1527,35 @@ async function handleDankMultiplierModal(interaction) {
     }
 
     const tacoEnabled = parseTruthyInput(tacoRaw, DEFAULT_TACO_ENABLED);
-    const levelState = loadLevelViewState(token);
-    if (!levelState || levelState.userId !== interaction.user.id) {
+    if (ownerId !== interaction.user.id) {
       await interaction.reply({
-        content: "This level calculator panel expired. Open it again from XP Calculator.",
+        content: "Only the panel owner can use these controls.",
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    const nextState = {
-      ...levelState,
-      startLevel,
-      endLevel,
-      tacoEnabled,
-      page: 0,
-    };
-    const payload = buildLevelCalculatorPayload(nextState);
-    if (payload?.state) {
-      saveLevelViewState(token, payload.state);
-      delete payload.state;
-    }
-    await interaction.update(payload);
+    await interaction.update(
+      buildLevelCalculatorPayload({
+        userId: ownerId,
+        sourceType,
+        page: 0,
+        startLevel,
+        endLevel,
+        tacoEnabled,
+      }),
+    );
     return;
   }
 
-  const view = loadMultiplierViewState(token);
-  if (!view || view.userId !== interaction.user.id) {
+  const ownerId = String(parts[2] || "");
+  const type = String(parts[3] || "xp");
+  const page = Math.max(0, Number(parts[4] || 0));
+  if (!ownerId) return;
+  const view = { userId: ownerId, type, page };
+  if (view.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This multiplier editor expired. Run `/dank multiplier edit` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -1614,12 +1581,7 @@ async function handleDankMultiplierModal(interaction) {
   }
 
   saveMultiplierProfile(view.userId, view.type, profile);
-  const payload = buildMultiplierEditPayload(view);
-  if (payload?.state) {
-    saveMultiplierViewState(token, payload.state);
-    delete payload.state;
-  }
-  await interaction.reply(payload);
+  await interaction.update(buildMultiplierEditPayload(view));
 }
 
 if (!buttonHandlers.has(MULTIPLIER_ROUTE_PREFIX)) {

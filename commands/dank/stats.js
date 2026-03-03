@@ -15,28 +15,61 @@ const { buttonHandlers } = require("../../functions/interactions/button");
 const { selectMenuHandlers } = require("../../functions/interactions/selectMenu");
 const { modalHandlers } = require("../../functions/interactions/modal");
 
-const VIEW_STATE_TYPE = "dank_stats_view";
 const ROUTE_PREFIX = "dankstats";
 const ITEMS_PER_PAGE = 8;
 const DELETE_QUERY_INPUT_ID = "delete_query";
 
-function createViewToken(userId) {
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${userId.slice(-6)}${Date.now().toString(36)}${rand}`.slice(0, 40);
+function encodePart(value) {
+  return encodeURIComponent(String(value ?? ""));
 }
 
-function saveViewState(token, state) {
-  global.db.upsertState(VIEW_STATE_TYPE, JSON.stringify(state), token, false);
-}
-
-function loadViewState(token) {
-  const raw = global.db.getState(VIEW_STATE_TYPE, token);
-  if (!raw) return null;
+function decodePart(value) {
   try {
-    return JSON.parse(raw);
+    return decodeURIComponent(String(value ?? ""));
   } catch {
-    return null;
+    return "";
   }
+}
+
+function buildViewCustomId(viewState, action, targetPage = viewState.page) {
+  return [
+    ROUTE_PREFIX,
+    encodePart(viewState.main),
+    encodePart(viewState.sub),
+    action,
+    String(Number(targetPage || 0)),
+    viewState.showMultipliers ? "1" : "0",
+    viewState.showDeleteUI ? "1" : "0",
+    encodePart(viewState.deleteScope || ""),
+    String(viewState.userId || ""),
+  ].join(":");
+}
+
+function parseViewCustomId(customId) {
+  const [
+    route,
+    mainEnc,
+    subEnc,
+    action,
+    pageRaw,
+    showMultRaw,
+    showDeleteRaw,
+    deleteScopeEnc,
+    ownerId,
+  ] = String(customId || "").split(":");
+  if (route !== ROUTE_PREFIX) return null;
+  return {
+    action: String(action || ""),
+    state: {
+      main: decodePart(mainEnc),
+      sub: decodePart(subEnc) || "__all__",
+      page: Math.max(0, Number(pageRaw || 0)),
+      showMultipliers: String(showMultRaw || "0") === "1",
+      showDeleteUI: String(showDeleteRaw || "0") === "1",
+      deleteScope: decodePart(deleteScopeEnc || ""),
+      userId: String(ownerId || ""),
+    },
+  };
 }
 
 function parseEmojiValue(raw) {
@@ -447,6 +480,17 @@ function buildDankStatsPayload(viewState) {
   const totalPages = Math.max(1, Math.ceil(lines.length / ITEMS_PER_PAGE));
   const page = Math.min(Math.max(0, Number(viewState.page || 0)), totalPages - 1);
   const pagedLines = lines.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE);
+  const normalizedView = {
+    ...viewState,
+    main: safeMain,
+    sub: safeSub,
+    page,
+    deleteScope:
+      currentDeleteScope &&
+      (currentDeleteScope.type === "sub"
+        ? `sub|${currentDeleteScope.main}|${currentDeleteScope.sub}`
+        : `main|${currentDeleteScope.main}`),
+  };
 
   const leftEmoji = parseEmojiValue(global.db.getFeatherEmojiMarkdown("chevron-left")) || {
     name: "◀️",
@@ -472,22 +516,28 @@ function buildDankStatsPayload(viewState) {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:prev:${viewState.token}`)
+          .setCustomId(buildViewCustomId(normalizedView, "page", page - 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(leftEmoji)
           .setDisabled(page <= 0),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:page:${viewState.token}`)
+          .setCustomId(buildViewCustomId(normalizedView, "page", page))
           .setStyle(ButtonStyle.Secondary)
           .setLabel(`${page + 1}/${totalPages}`)
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:next:${viewState.token}`)
+          .setCustomId(buildViewCustomId(normalizedView, "page", page + 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(rightEmoji)
           .setDisabled(page >= totalPages - 1),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:multis:${viewState.token}`)
+          .setCustomId(
+            buildViewCustomId(
+              { ...viewState, showMultipliers: !viewState.showMultipliers },
+              "toggle_multis",
+              page,
+            ),
+          )
           .setStyle(ButtonStyle.Secondary)
           .setLabel(viewState.showMultipliers ? "Collapse Multipliers" : "Expand Multipliers")
           .setEmoji(
@@ -501,7 +551,13 @@ function buildDankStatsPayload(viewState) {
           )
           .setDisabled(!hasMultipliers),
         new ButtonBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:delete:${viewState.token}`)
+          .setCustomId(
+            buildViewCustomId(
+              { ...normalizedView, showDeleteUI: true },
+              "toggle_delete",
+              0,
+            ),
+          )
           .setStyle(ButtonStyle.Danger)
           .setLabel("Delete Data")
           .setEmoji(
@@ -529,7 +585,7 @@ function buildDankStatsPayload(viewState) {
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(`${ROUTE_PREFIX}:sub:${viewState.token}`)
+            .setCustomId(buildViewCustomId(normalizedView, "sub", page))
             .setPlaceholder("Select Subcategory")
             .addOptions(buildSubOptions(safeMain, subCategories, safeSub)),
         ),
@@ -544,7 +600,7 @@ function buildDankStatsPayload(viewState) {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId(`${ROUTE_PREFIX}:main:${viewState.token}`)
+          .setCustomId(buildViewCustomId(normalizedView, "main", page))
           .setPlaceholder("Select Main Category")
           .addOptions(buildMainOptions(mainCategories, safeMain)),
       ),
@@ -559,7 +615,7 @@ function buildDankStatsPayload(viewState) {
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(`${ROUTE_PREFIX}:del_scope:${viewState.token}`)
+            .setCustomId(buildViewCustomId(normalizedView, "del_scope", page))
             .setPlaceholder("Select what to delete")
             .addOptions(
               buildDeleteScopeOptions(
@@ -581,7 +637,7 @@ function buildDankStatsPayload(viewState) {
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(`${ROUTE_PREFIX}:del_input:${viewState.token}`)
+            .setCustomId(buildViewCustomId(normalizedView, "del_input", page))
             .setLabel("Delete Data")
             .setStyle(ButtonStyle.Danger)
             .setEmoji(
@@ -597,66 +653,44 @@ function buildDankStatsPayload(viewState) {
     content: "",
     components: [container1, container2],
     flags: MessageFlags.IsComponentsV2,
-    state: {
-      ...viewState,
-      main: safeMain,
-      sub: safeSub,
-      page,
-      deleteScope:
-        currentDeleteScope &&
-        (currentDeleteScope.type === "sub"
-          ? `sub|${currentDeleteScope.main}|${currentDeleteScope.sub}`
-          : `main|${currentDeleteScope.main}`),
-    },
   };
 }
 
 async function runDankStats(interaction) {
-  const token = createViewToken(interaction.user.id);
   const initialState = {
-    token,
     userId: interaction.user.id,
     main: "Adventure",
     sub: "__all__",
     page: 0,
+    showMultipliers: false,
+    showDeleteUI: false,
+    deleteScope: "",
   };
-  saveViewState(token, initialState);
-
-  const payload = buildDankStatsPayload(initialState);
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.reply(payload);
+  await interaction.reply(buildDankStatsPayload(initialState));
 }
 
 async function handleDankStatsButton(interaction) {
-  const customId = String(interaction.customId || "");
-  const [, action, token] = customId.split(":");
-  if (!token) return;
-
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  const parsed = parseViewCustomId(interaction.customId);
+  if (!parsed) return;
+  const { action, state } = parsed;
+  if (state.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This stats panel expired. Run `/dank stats` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  if (action === "prev") {
-    state.page = Math.max(0, Number(state.page || 0) - 1);
-  } else if (action === "next") {
-    state.page = Number(state.page || 0) + 1;
-  } else if (action === "delete") {
+  if (action === "page") {
+    state.page = Math.max(0, Number(state.page || 0));
+  } else if (action === "toggle_delete") {
     state.showDeleteUI = true;
     state.page = 0;
-  } else if (action === "multis") {
+  } else if (action === "toggle_multis") {
     state.showMultipliers = !state.showMultipliers;
   } else if (action === "del_input") {
     const modal = new ModalBuilder()
-      .setCustomId(`${ROUTE_PREFIX}:del_modal:${token}`)
+      .setCustomId(buildViewCustomId(state, "del_modal", state.page))
       .setTitle("Delete Dank Stats Data")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -675,24 +709,16 @@ async function handleDankStatsButton(interaction) {
     return;
   }
 
-  const payload = buildDankStatsPayload(state);
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.update(payload);
+  await interaction.update(buildDankStatsPayload(state));
 }
 
 async function handleDankStatsSelect(interaction) {
-  const customId = String(interaction.customId || "");
-  const [, action, token] = customId.split(":");
-  if (!token) return;
-
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  const parsed = parseViewCustomId(interaction.customId);
+  if (!parsed) return;
+  const { action, state } = parsed;
+  if (state.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This stats panel expired. Run `/dank stats` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -715,24 +741,16 @@ async function handleDankStatsSelect(interaction) {
     return;
   }
 
-  const payload = buildDankStatsPayload(state);
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.update(payload);
+  await interaction.update(buildDankStatsPayload(state));
 }
 
 async function handleDankStatsModal(interaction) {
-  const customId = String(interaction.customId || "");
-  const [, action, token] = customId.split(":");
-  if (action !== "del_modal" || !token) return;
-
-  const state = loadViewState(token);
-  if (!state || state.userId !== interaction.user.id) {
+  const parsed = parseViewCustomId(interaction.customId);
+  if (!parsed || parsed.action !== "del_modal") return;
+  const state = parsed.state;
+  if (state.userId !== interaction.user.id) {
     await interaction.reply({
-      content: "This stats panel expired. Run `/dank stats` again.",
+      content: "Only the panel owner can use these controls.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -792,13 +810,7 @@ async function handleDankStatsModal(interaction) {
   }
 
   state.showDeleteUI = false;
-  const payload = buildDankStatsPayload(state);
-  if (payload?.state) {
-    saveViewState(token, payload.state);
-    delete payload.state;
-  }
-
-  await interaction.reply(payload);
+  await interaction.update(buildDankStatsPayload(state));
 }
 
 if (!buttonHandlers.has(ROUTE_PREFIX)) {
