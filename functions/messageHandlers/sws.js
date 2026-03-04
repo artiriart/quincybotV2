@@ -241,7 +241,7 @@ async function handleSwsMessage(message, oldMessage, settings) {
     if (!enabled) return;
 
     const cdBuff = Number(global.db.getState("swsCdPerk", userId)) || 1;
-    const totalCd = 5 * cdBuff;
+    const totalCd = 10 * cdBuff;
 
     global.db.createReminder(
       userId,
