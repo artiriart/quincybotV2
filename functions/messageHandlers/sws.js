@@ -89,7 +89,9 @@ async function sendRaidTicketReminder(message, userId, ticketEmojiUrl) {
       ),
     )
     .setThumbnailAccessory((thumb) => {
-      thumb.setURL(ticketEmojiUrl || "https://cdn.discordapp.com/embed/avatars/0.png");
+      thumb.setURL(
+        ticketEmojiUrl || "https://cdn.discordapp.com/embed/avatars/0.png",
+      );
       return thumb;
     });
 
@@ -154,14 +156,20 @@ function saveRaidTicketNotifyState(userId, state) {
 
 async function handleSwsMessage(message, oldMessage, settings) {
   if (!oldMessage && message?.embeds?.[0]?.description) {
-    const ticketEntries = parseTicketSummaryLines(message.embeds[0].description);
+    const ticketEntries = parseTicketSummaryLines(
+      message.embeds[0].description,
+    );
     if (ticketEntries.length) {
       const raiderUserIds = getReadyButtonUserIds(message);
       if (raiderUserIds.length) {
         const ticketEmojiUrl = getRaidTicketEmojiUrl();
         const reminders = [];
 
-        for (let index = 0; index < Math.min(ticketEntries.length, raiderUserIds.length); index += 1) {
+        for (
+          let index = 0;
+          index < Math.min(ticketEntries.length, raiderUserIds.length);
+          index += 1
+        ) {
           const userId = raiderUserIds[index];
           const left = ticketEntries[index]?.left;
           if (!userId || !Number.isFinite(left)) continue;
@@ -189,7 +197,8 @@ async function handleSwsMessage(message, oldMessage, settings) {
             continue;
           }
 
-          const hitThreshold = left === threshold && !notifyState.thresholdNotified;
+          const hitThreshold =
+            left === threshold && !notifyState.thresholdNotified;
           const hitZero = left === 0 && !notifyState.zeroNotified;
           if (!hitThreshold && !hitZero) {
             notifyState.lastTickets = left;
@@ -260,7 +269,8 @@ async function handleSwsMessage(message, oldMessage, settings) {
     const enabled = settings.getUserToggle(user.id, "sws_gem_reminder", true);
     if (!enabled) return;
 
-    const gem = message.content.split(">")[1]?.split("broke")[0]?.trim();
+    const match = message.content.match(/>\s*(.*?)\s*broke$/);
+    const gem = match?.[1];
     if (!gem) return;
 
     const gemId = global.db.safeQuery(
