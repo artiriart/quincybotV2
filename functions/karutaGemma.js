@@ -10,6 +10,23 @@ function parseFirstJsonObject(text) {
   }
 }
 
+let geminiKeyIndex = 0;
+
+function getGeminiApiKeys() {
+  return String(process.env.GEMINI_API_KEY || "")
+    .split("|")
+    .map((key) => key.trim())
+    .filter(Boolean);
+}
+
+function getNextGeminiApiKey() {
+  const keys = getGeminiApiKeys();
+  if (!keys.length) return "";
+  const key = keys[geminiKeyIndex % keys.length];
+  geminiKeyIndex = (geminiKeyIndex + 1) % keys.length;
+  return key;
+}
+
 function normalizeCards(rawCards) {
   const cards = Array.isArray(rawCards) ? rawCards : [];
   return cards
@@ -39,12 +56,59 @@ function buildGemmaPrompt() {
   ].join("\n");
 }
 
+function collectResponseTextFromPayload(payload) {
+  const partsToText = (parts) =>
+    (Array.isArray(parts) ? parts : [])
+      .map((part) => String(part?.text || ""))
+      .filter(Boolean)
+      .join("\n");
+
+  if (Array.isArray(payload)) {
+    return payload
+      .map((chunk) => partsToText(chunk?.candidates?.[0]?.content?.parts))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
+  return partsToText(payload?.candidates?.[0]?.content?.parts).trim();
+}
+
+function extractGeminiText(responseBody) {
+  const raw = String(responseBody || "").trim();
+  if (!raw) return "";
+
+  const tryParse = (value) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = tryParse(raw);
+  if (direct) return collectResponseTextFromPayload(direct);
+
+  // Handle chunked / SSE-style responses from streamGenerateContent.
+  const chunks = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => (line.startsWith("data:") ? line.slice(5).trim() : line))
+    .filter((line) => line && line !== "[DONE]")
+    .map((line) => tryParse(line))
+    .filter(Boolean);
+
+  if (chunks.length) return collectResponseTextFromPayload(chunks);
+  return raw;
+}
+
 async function recognizeKarutaCardsWithGemmaFromUrl(imageUrl) {
   const startedAt = Date.now();
   const startMem = process.memoryUsage().rss / 1024 ** 2;
 
-  const apiKey = String(process.env.GEMINI_API_KEY || "").trim();
-  if (!apiKey) {
+  const configuredKeys = getGeminiApiKeys();
+  if (!configuredKeys.length) {
     throw new Error("GEMINI_API_KEY is missing.");
   }
 
@@ -62,12 +126,13 @@ async function recognizeKarutaCardsWithGemmaFromUrl(imageUrl) {
   const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
   const imageB64 = imageBuffer.toString("base64");
 
-  const model = String(process.env.KARUTA_GEMMA_MODEL || "gemma-3-27b-it").trim();
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const model = String(process.env.KARUTA_GEMMA_MODEL || "gemini-3.1-flash-lite-preview").trim();
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent`;
 
   let lastStatus = "no-response";
   let responseText = "";
   for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const apiKey = getNextGeminiApiKey();
     const response = await fetch(`${endpoint}?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: {
@@ -76,6 +141,7 @@ async function recognizeKarutaCardsWithGemmaFromUrl(imageUrl) {
       body: JSON.stringify({
         contents: [
           {
+            role: "user",
             parts: [
               { text: buildGemmaPrompt() },
               {
@@ -88,16 +154,17 @@ async function recognizeKarutaCardsWithGemmaFromUrl(imageUrl) {
           },
         ],
         generationConfig: {
-          temperature: 0.1,
+          thinkingConfig: {
+            thinkingLevel: "MINIMAL",
+          },
+          mediaResolution: "MEDIA_RESOLUTION_LOW",
         },
       }),
     }).catch(() => null);
 
     if (response?.ok) {
-      const json = await response.json().catch(() => null);
-      responseText = String(
-        json?.candidates?.[0]?.content?.parts?.map((part) => part?.text || "").join("\n") || "",
-      ).trim();
+      const rawBody = await response.text().catch(() => "");
+      responseText = extractGeminiText(rawBody);
       if (responseText) break;
     }
 

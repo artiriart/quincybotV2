@@ -74,9 +74,14 @@ function claimKarutaDropRecognition(messageId) {
 async function handleKarutaDropRecognition(message, settings) {
   if (!message?.guildId) return;
   const content = String(message?.content || "");
+  const isNormalDrop = /\bis dropping\s+(3|4)\s+cards!/i.test(content);
+  const isServerActiveDrop =
+    /\bi'?m dropping\s+\d+\s+cards since this server is currently active!/i.test(
+      content,
+    );
   if (
-    !/\bis dropping\s+(3|4)\s+cards!/i.test(content) ||
-    content.includes("drop has expired")
+    (!isNormalDrop && !isServerActiveDrop) ||
+    content.toLowerCase().includes("drop has expired")
   )
     return;
 

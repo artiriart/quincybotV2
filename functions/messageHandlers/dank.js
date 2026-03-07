@@ -29,13 +29,20 @@ const dank_adventure_ticket_map = {
 };
 
 function getMultiplierEmojiMarkdown(multiplierType) {
-  const key = String(multiplierType || "").trim().toLowerCase();
+  const key = String(multiplierType || "")
+    .trim()
+    .toLowerCase();
   const candidates =
     key === "xp"
       ? ["dank_multiplier_xp", "multiplier_xp"]
       : key === "luck"
         ? ["dank_multiplier_luck", "multiplier_luck"]
-        : ["dank_multiplier_coins", "dank_multiplier_coin", "multiplier_coins", "multiplier_coin"];
+        : [
+            "dank_multiplier_coins",
+            "dank_multiplier_coin",
+            "multiplier_coins",
+            "multiplier_coin",
+          ];
 
   for (const name of candidates) {
     const markdown = global.db.getFeatherEmojiMarkdown(name);
@@ -57,11 +64,14 @@ function toCompactMultiplierEntry(rawReward) {
   if (!match) return null;
 
   const amount = String(match[1] || "").trim();
-  const typeKey = String(match[2] || "").trim().toLowerCase();
+  const typeKey = String(match[2] || "")
+    .trim()
+    .toLowerCase();
   const duration = String(match[3] || "").trim();
   if (!amount || !duration) return null;
 
-  const normalizedType = typeKey === "coin" || typeKey === "coins" ? "coins" : typeKey;
+  const normalizedType =
+    typeKey === "coin" || typeKey === "coins" ? "coins" : typeKey;
   const emoji = getMultiplierEmojiMarkdown(normalizedType);
   return `MULTIPLIER::${amount} ${emoji ? `${emoji} ` : ""}for ${duration}`;
 }
@@ -258,10 +268,7 @@ async function handleDankMessage(message, oldMessage, settings) {
         upsertDankStat(user.id, compactMultiplier, 1, `Adventure_${adv}`);
         continue;
       }
-      if (
-        reward.includes("Title") ||
-        reward.includes("Pet")
-      ) {
+      if (reward.includes("Title") || reward.includes("Pet")) {
         continue;
       }
 
@@ -284,6 +291,23 @@ async function handleDankMessage(message, oldMessage, settings) {
       );
     }
     return;
+  }
+
+  if (
+    ["Terrible work!", "Great work!"]?.includes(message?.embeds?.[0]?.title)
+  ) {
+    const user = await resolveDankUser(message);
+    const work = message?.embeds[0]?.footer?.text?.split("as a")[1]?.trim();
+    const rewards = message?.embeds?.[0]?.description
+      ?.split("\n")
+      ?.slice(1)
+      ?.map((line) => line?.split("-")?.[1]?.split("for")?.[0]?.trim())
+      ?.filter(Boolean);
+    for (const reward of rewards) {
+      const parsed = parseRewardEntry(reward);
+      if (!parsed) continue;
+      upsertDankStat(user.id, parsed.item, parsed.amount, `Work_${work}`);
+    }
   }
 
   if (
@@ -313,13 +337,15 @@ async function handleDankMessage(message, oldMessage, settings) {
     for (const reward of rewards || []) {
       const compactMultiplier = toCompactMultiplierEntry(reward);
       if (compactMultiplier) {
-        upsertDankStat(user.id, compactMultiplier, 1, `Random Event_${eventType}`);
+        upsertDankStat(
+          user.id,
+          compactMultiplier,
+          1,
+          `Random Event_${eventType}`,
+        );
         continue;
       }
-      if (
-        reward.includes("Title") ||
-        reward.includes("Pet")
-      ) {
+      if (reward.includes("Title") || reward.includes("Pet")) {
         continue;
       }
 
@@ -380,7 +406,9 @@ async function handleDankMessage(message, oldMessage, settings) {
 
   const lastComponent = getLast(message?.components);
   const hasFishing = lastComponent?.components?.some(
-    (c) => c?.type === 9 && c?.components?.[0]?.content?.includes("You caught something!"),
+    (c) =>
+      c?.type === 9 &&
+      c?.components?.[0]?.content?.includes("You caught something!"),
   );
 
   if (hasFishing) {
@@ -388,7 +416,9 @@ async function handleDankMessage(message, oldMessage, settings) {
     if (!user || !shouldTrackDankStats(settings.getUserToggle, user.id)) return;
 
     const fishingText = lastComponent.components?.find(
-      (c) => c?.type === 9 && c?.components?.[0]?.content?.includes("You caught something!"),
+      (c) =>
+        c?.type === 9 &&
+        c?.components?.[0]?.content?.includes("You caught something!"),
     )?.components?.[0]?.content;
     const fishingItem = getLast(fishingText?.split("\n"))
       ?.split("- ")?.[1]
@@ -442,7 +472,9 @@ async function handleDankMessage(message, oldMessage, settings) {
           .split(" ")
           .map((chunk) => chunk.trim())
           .filter(Boolean)?.[0] || "";
-      const userPayout = String(amountToken || "").replaceAll(",", "").trim();
+      const userPayout = String(amountToken || "")
+        .replaceAll(",", "")
+        .trim();
       const parsedPayout = Number.parseInt(userPayout, 10);
       if (!Number.isFinite(parsedPayout)) continue;
 
