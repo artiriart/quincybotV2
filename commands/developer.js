@@ -13,6 +13,7 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require("discord.js");
+const { inspect } = require("node:util");
 const handleMessage = require("../functions/handleMessage");
 const { buttonHandlers } = require("../functions/interactions/button");
 const { modalHandlers } = require("../functions/interactions/modal");
@@ -266,6 +267,58 @@ function isDevAllowed(userId) {
   const owners = Array.isArray(global.ownerIds) ? global.ownerIds : [];
   if (!owners.length) return true;
   return owners.includes(userId);
+}
+
+async function runDevEval(interaction) {
+  const source = String(interaction.options.getString("code", true) || "").trim();
+  if (!source) {
+    await interaction.reply({
+      content: "Code cannot be empty.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const message = interaction?.message ?? null;
+  interaction.message = message;
+
+  try {
+    const evaluator = new AsyncFunction(
+      "global",
+      "client",
+      "db",
+      "interaction",
+      "message",
+      `"use strict";\n${source}`,
+    );
+    const result = await evaluator(
+      global,
+      interaction.client,
+      global.db,
+      interaction,
+      message,
+    );
+
+    const rendered =
+      typeof result === "string"
+        ? result
+        : inspect(result, { depth: 2, maxArrayLength: 50, breakLength: 120 });
+
+    const output = String(rendered ?? "undefined");
+    const clipped = output.length > 1900 ? `${output.slice(0, 1900)}\n...` : output;
+    await interaction.reply({
+      content: `\`\`\`js\n${clipped}\n\`\`\``,
+      flags: MessageFlags.Ephemeral,
+    });
+  } catch (error) {
+    const output = String(error?.stack || error?.message || error);
+    const clipped = output.length > 1900 ? `${output.slice(0, 1900)}\n...` : output;
+    await interaction.reply({
+      content: `\`\`\`js\n${clipped}\n\`\`\``,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 }
 
 function createViewToken(userId) {
@@ -1431,7 +1484,15 @@ module.exports = {
     .setContexts("PrivateChannel", "Guild", "BotDM")
     .setDescription("Developer commands")
     .addSubcommand((subcommand) =>
-      subcommand.setName("eval").setDescription("Evaluate code"),
+      subcommand
+        .setName("eval")
+        .setDescription("Evaluate code")
+        .addStringOption((option) =>
+          option
+            .setName("code")
+            .setDescription("JavaScript source to execute")
+            .setRequired(true),
+        ),
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -1518,6 +1579,11 @@ module.exports = {
 
     const group = interaction.options.getSubcommandGroup(false);
     const subcommand = interaction.options.getSubcommand(false);
+
+    if (!group && subcommand === "eval") {
+      await runDevEval(interaction);
+      return;
+    }
 
     if (group === "edit" && subcommand === "7w7-items") {
       await interaction.reply(build7w7ItemEditorPanel());

@@ -26,6 +26,10 @@ async function loadSlashCommands(client) {
 
     const rawData = commandModule?.data;
     if (!rawData) continue;
+    if (typeof commandModule?.execute !== "function") {
+      console.warn(`Skipping slash command ${file}: missing execute(...) handler.`);
+      continue;
+    }
 
     const builders = Array.isArray(rawData) ? rawData : [rawData];
     for (const builder of builders) {
@@ -55,7 +59,20 @@ async function registerSlashCommands(client) {
     payload.push(typeof data.toJSON === "function" ? data.toJSON() : data);
   }
 
+  const loadedNames = new Set(payload.map((entry) => String(entry?.name || "")));
   await client.application.commands.set(payload);
+
+  // Remove stale guild-scoped commands that are not part of current runtime payload.
+  for (const guild of client.guilds.cache.values()) {
+    const guildCommands = await guild.commands.fetch().catch(() => null);
+    if (!guildCommands) continue;
+
+    for (const command of guildCommands.values()) {
+      if (loadedNames.has(command.name)) continue;
+      await guild.commands.delete(command.id).catch(() => null);
+    }
+  }
+
   return payload.length;
 }
 
