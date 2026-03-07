@@ -61,13 +61,13 @@ function collectResponseTextFromPayload(payload) {
     (Array.isArray(parts) ? parts : [])
       .map((part) => String(part?.text || ""))
       .filter(Boolean)
-      .join("\n");
+      .join("");
 
   if (Array.isArray(payload)) {
     return payload
       .map((chunk) => partsToText(chunk?.candidates?.[0]?.content?.parts))
       .filter(Boolean)
-      .join("\n")
+      .join("")
       .trim();
   }
 
