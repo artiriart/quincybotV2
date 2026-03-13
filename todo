@@ -6,8 +6,7 @@
     - (test) ticket refill notifier + setting on x tickets
 
 - anigame:
-    - nvm are boycotting anigame because of them using AI for everything and aggresive anti-user stuff
-      (verification bot sends my data straight to palentir atp lwk) -> just (test) cl/f reminder & fix claim
+    - (test) cl/f reminder & fix claim
 
 - karuta:
     - (test) visit reminders
@@ -25,13 +24,17 @@
     - fix: claim
 
 - dank:
-    - (test) weekly bundle box reminders
+    - (fix) weekly bundle box reminders
     - (test) multiplier stats
     - (edit) do sync daily aka make it sync, not one time thing (sync = check which combinations not in table, fetch simulator if needed). also startup sync is ran daily too
     - for coins dont save Prestige 17 / omega stuff to dank_multipliers table too.
-
-- utility:
-    - list all reminders command
     - on /multipliers XP if page 1 add "record" reaction, will clean all XP multipliers,
       then wait for last page (add "done" reaction),
       then show all missing XP multipliers
+    - redo trade reminder
+
+- utility:
+    - list all reminders command
+    - setup github actions for push webhook notification
+    - upload Quincy db periodically to discord via gzip'ing tables (json) as backup
+

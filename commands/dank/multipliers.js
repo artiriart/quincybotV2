@@ -712,10 +712,12 @@ function buildMultiplierEditPayload(viewState) {
   const selectedSet = new Set(normalizedSelected);
   const hasOmegaMultiplier =
     [...selectedSet].some((name) => /omega/i.test(String(name || ""))) ||
-    trackedRows.some((entry) => /omega/i.test(String(entry?.name || "")));
+    (profile.track &&
+      trackedRows.some((entry) => /omega/i.test(String(entry?.name || ""))));
   const hasPrestigeMultiplier =
     [...selectedSet].some((name) => /prestige/i.test(String(name || ""))) ||
-    trackedRows.some((entry) => /prestige/i.test(String(entry?.name || "")));
+    (profile.track &&
+      trackedRows.some((entry) => /prestige/i.test(String(entry?.name || ""))));
   const trackLabel = profile.track ? "On" : "Off";
   const edit3Emoji = parseEmojiValue(getMultiplierUiEmoji("edit-3", ""));
   const omegaTierEmoji = getMultiplierUiEmoji("dank_omega", "");
@@ -1310,12 +1312,6 @@ async function handleDankMultiplierButton(interaction) {
       });
       return;
     }
-    if (action === "level_prev" || action === "level_next") {
-      levelState.page = Math.max(
-        0,
-        Number(levelState.page || 0) + (action === "level_next" ? 1 : -1),
-      );
-    }
     await interaction.update(buildLevelCalculatorPayload(levelState));
     return;
   }
@@ -1368,14 +1364,7 @@ async function handleDankMultiplierButton(interaction) {
 
   const profile = loadMultiplierProfile(view.userId, view.type);
 
-  if (action === "edit_prev") {
-    view.page = Math.max(0, Number(view.page || 0) - 1);
-    await interaction.update(buildMultiplierEditPayload(view));
-    return;
-  }
-
-  if (action === "edit_next") {
-    view.page = Number(view.page || 0) + 1;
+  if (action === "edit_prev" || action === "edit_next") {
     await interaction.update(buildMultiplierEditPayload(view));
     return;
   }
