@@ -19,6 +19,7 @@ async function routeMessageByBot(message, oldMessage, settings) {
       break;
 
     case global.botIds.karuta:
+    case global.botIds.karutaLeg:
       await handleKarutaMessage(message, settings);
       break;
 

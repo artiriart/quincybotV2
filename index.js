@@ -30,6 +30,7 @@ global.botIds = {
   izzi: "784851074472345633",
   anigame: "571027211407196161",
   karuta: "646937666251915264",
+  karutaLeg: "1006025546045591632",
 };
 global.ownerIds = (process.env.OWNERS || "")
   .split("|")

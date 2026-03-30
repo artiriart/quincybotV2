@@ -2,6 +2,11 @@ const Database = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
 const colors = require("colors");
+const {
+  buildKarutaIdentity,
+  canonicalizeKarutaKey,
+  compactKarutaKey,
+} = require("./functions/karutaData");
 
 const dbPath = path.join(__dirname, "database.sqlite");
 const db = new Database(dbPath);
@@ -394,6 +399,176 @@ function syncTables() {
   }
 }
 
+function migrateKarutaSpacing() {
+  const cardRows = safeQuery(
+    `
+    SELECT name, series, display_name, display_series, wishlist, card_url
+    FROM karuta_cards
+    `,
+    [],
+    [],
+  );
+  const wishlistRows = safeQuery(
+    `
+    SELECT user_id, guild_id, series, wishlist_min
+    FROM karuta_wishlists
+    `,
+    [],
+    [],
+  );
+
+  const mergedCards = new Map();
+  let cardsChanged = false;
+
+  for (const row of cardRows) {
+    const identity = buildKarutaIdentity(row);
+    if (!identity) continue;
+
+    const rowName = String(row?.name || "").trim();
+    const rowSeries = String(row?.series || "").trim();
+    if (rowName !== identity.name || rowSeries !== identity.series) {
+      cardsChanged = true;
+    }
+
+    const key = `${identity.name}\u0000${identity.series}`;
+    const wishlist = Number.parseInt(String(row?.wishlist || 0), 10);
+    const current = mergedCards.get(key);
+
+    if (!current) {
+      mergedCards.set(key, {
+        name: identity.name,
+        series: identity.series,
+        display_name: identity.displayName || null,
+        display_series: identity.displaySeries || null,
+        wishlist: Number.isFinite(wishlist) ? wishlist : 0,
+        card_url: String(row?.card_url || "").trim(),
+      });
+      continue;
+    }
+
+    cardsChanged = true;
+    current.wishlist = Math.max(
+      current.wishlist,
+      Number.isFinite(wishlist) ? wishlist : 0,
+    );
+    if (!current.display_name && identity.displayName) {
+      current.display_name = identity.displayName;
+    }
+    if (!current.display_series && identity.displaySeries) {
+      current.display_series = identity.displaySeries;
+    }
+    if (!current.card_url) {
+      current.card_url = String(row?.card_url || "").trim();
+    }
+  }
+
+  if (mergedCards.size !== cardRows.length) {
+    cardsChanged = true;
+  }
+
+  const compactSeriesMap = new Map();
+  for (const card of mergedCards.values()) {
+    const compact = compactKarutaKey(card.display_series || card.series);
+    if (!compact || compactSeriesMap.has(compact)) continue;
+    compactSeriesMap.set(compact, card.series);
+  }
+
+  const mergedWishlists = new Map();
+  let wishlistsChanged = false;
+
+  for (const row of wishlistRows) {
+    const userId = String(row?.user_id || "").trim();
+    const guildId = String(row?.guild_id || "global").trim() || "global";
+    const rawSeries = String(row?.series || "").trim();
+    if (!userId || !rawSeries) continue;
+
+    const compactSeries = compactKarutaKey(rawSeries);
+    const nextSeries =
+      compactSeriesMap.get(compactSeries) ||
+      canonicalizeKarutaKey(rawSeries);
+    if (!nextSeries) continue;
+
+    if (rawSeries !== nextSeries) {
+      wishlistsChanged = true;
+    }
+
+    const key = `${userId}\u0000${guildId}\u0000${nextSeries}`;
+    const wishlistMin =
+      Math.max(0, Number.parseInt(String(row?.wishlist_min || 0), 10) || 0);
+    const current = mergedWishlists.get(key);
+
+    if (!current) {
+      mergedWishlists.set(key, {
+        user_id: userId,
+        guild_id: guildId,
+        series: nextSeries,
+        wishlist_min: wishlistMin,
+      });
+      continue;
+    }
+
+    wishlistsChanged = true;
+    current.wishlist_min = Math.max(current.wishlist_min, wishlistMin);
+  }
+
+  if (mergedWishlists.size !== wishlistRows.length) {
+    wishlistsChanged = true;
+  }
+
+  if (!cardsChanged && !wishlistsChanged) {
+    return false;
+  }
+
+  db.transaction(() => {
+    if (cardsChanged) {
+      db.prepare(`DELETE FROM karuta_cards`).run();
+      const insertCard = db.prepare(
+        `
+        INSERT INTO karuta_cards
+        (name, series, display_name, display_series, wishlist, card_url)
+        VALUES (?, ?, ?, ?, ?, ?)
+        `,
+      );
+
+      for (const card of mergedCards.values()) {
+        insertCard.run(
+          card.name,
+          card.series,
+          card.display_name,
+          card.display_series,
+          card.wishlist,
+          card.card_url,
+        );
+      }
+    }
+
+    if (wishlistsChanged) {
+      db.prepare(`DELETE FROM karuta_wishlists`).run();
+      const insertWishlist = db.prepare(
+        `
+        INSERT INTO karuta_wishlists
+        (user_id, guild_id, series, wishlist_min)
+        VALUES (?, ?, ?, ?)
+        `,
+      );
+
+      for (const wishlist of mergedWishlists.values()) {
+        insertWishlist.run(
+          wishlist.user_id,
+          wishlist.guild_id,
+          wishlist.series,
+          wishlist.wishlist_min,
+        );
+      }
+    }
+  })();
+
+  console.log(
+    `[karuta] normalized spacing (${mergedCards.size} cards, ${mergedWishlists.size} wishlists).`,
+  );
+  return true;
+}
+
 // ---------------- FUNCTIONS ----------------
 
 /**
@@ -613,6 +788,7 @@ function sweepNonPermanentStates() {
  */
 function initDatabase() {
   syncTables();
+  migrateKarutaSpacing();
   safeQuery(
     `CREATE INDEX IF NOT EXISTS idx_dank_fish_entities_type_name ON dank_fish_entities(entity_type, name)`,
   );
@@ -658,4 +834,5 @@ module.exports = {
   getFeatherEmojiMarkdown,
   createReminder,
   sweepNonPermanentStates,
+  migrateKarutaSpacing,
 };

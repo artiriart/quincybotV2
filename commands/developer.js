@@ -15,6 +15,7 @@ const {
 } = require("discord.js");
 const { inspect } = require("node:util");
 const handleMessage = require("../functions/handleMessage");
+const { buildKarutaIdentity } = require("../functions/karutaData");
 const { buttonHandlers } = require("../functions/interactions/button");
 const { modalHandlers } = require("../functions/interactions/modal");
 const { selectMenuHandlers } = require("../functions/interactions/selectMenu");
@@ -51,13 +52,6 @@ const DANK_MULTIPLIER_EDIT_DESCRIPTION_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankm
 const DANK_MULTIPLIER_EMOJI_INPUT_ID = "multi_emoji";
 const DANK_MULTIPLIER_DESCRIPTION_INPUT_ID = "multi_description";
 const KARUTA_RECOG_STATE_TYPE = "karuta_recognition_settings";
-
-function normalizeKarutaKey(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "");
-}
 
 function parseCsvRows(csvText) {
   const text = String(csvText || "").replace(/^\uFEFF/, "");
@@ -159,9 +153,9 @@ function importKarutaSpreadsheetCsv(csvText) {
       const displayName = String(sourceRow[characterIndex] || "").trim();
       const displaySeries = String(sourceRow[seriesIndex] || "").trim();
       const wishlist = parseWishlistValue(sourceRow[wishlistsIndex]);
-
-      const name = normalizeKarutaKey(displayName);
-      const series = normalizeKarutaKey(displaySeries);
+      const identity = buildKarutaIdentity({ displayName, displaySeries });
+      const name = identity?.name || "";
+      const series = identity?.series || "";
 
       if (!displayName || !displaySeries || !name || !series) {
         skipped += 1;

@@ -8,6 +8,11 @@ const {
   TextDisplayBuilder,
 } = require("discord.js");
 const { extractUserFromMention } = require("../handleMessageHelpers");
+const {
+  buildKarutaIdentity,
+  compactKarutaKey,
+  parseKarutaResultLine,
+} = require("../karutaData");
 const { recognizeKarutaCardsFromUrl } = require("../karutaOcr");
 const { recognizeKarutaCardsWithGemmaFromUrl } = require("../karutaGemma");
 let syncKarutaCardToMysqlIfNew = null;
@@ -33,10 +38,7 @@ function getKarutaRecognitionMode() {
 }
 
 function normalizeKarutaLookup(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "");
+  return compactKarutaKey(value);
 }
 
 function getKarutaDropImageUrl(message) {
@@ -132,7 +134,7 @@ async function handleKarutaDropRecognition(message, settings) {
       `
       SELECT wishlist
       FROM karuta_cards
-      WHERE name = ? AND series = ?
+      WHERE REPLACE(name, ' ', '') = ? AND REPLACE(series, ' ', '') = ?
       LIMIT 1
       `,
       [nameKey, seriesKey],
@@ -142,7 +144,7 @@ async function handleKarutaDropRecognition(message, settings) {
       `
       SELECT user_id
       FROM karuta_wishlists
-      WHERE guild_id = ? AND series = ?
+      WHERE guild_id = ? AND REPLACE(series, ' ', '') = ?
       ORDER BY user_id ASC
       `,
       [message.guildId, seriesKey],
@@ -190,30 +192,30 @@ async function handleKarutaDropRecognition(message, settings) {
 }
 
 async function handleKarutaMessage(message, settings) {
-  await handleKarutaDropRecognition(message, settings);
+  const authorId = String(message?.author?.id || "");
+  const isPrimaryKarutaBot = authorId === String(global.botIds.karuta || "");
+
+  if (isPrimaryKarutaBot) {
+    await handleKarutaDropRecognition(message, settings);
+  }
 
   const embed = message?.embeds?.[0];
   const title = String(embed?.title || "");
   const description = String(embed?.description || "");
 
-  const normalizeKarutaKey = (value) =>
-    String(value || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, "");
-
   const upsertKarutaCard = (input) => {
-    const displayName = String(input?.displayName || "").trim();
-    const displaySeries = String(input?.displaySeries || "").trim();
+    const identity = buildKarutaIdentity(input);
+    if (!identity) return;
+
+    const displayName = identity.displayName;
+    const displaySeries = identity.displaySeries;
     const wishlistValue = Number.parseInt(
       String(input?.wishlist || "0").replaceAll(",", ""),
       10,
     );
     const wishlist = Number.isFinite(wishlistValue) ? wishlistValue : 0;
     const cardUrl = String(input?.cardUrl || "").trim();
-    const name = normalizeKarutaKey(displayName);
-    const series = normalizeKarutaKey(displaySeries);
-    if (!name || !series) return;
+    const { name, series } = identity;
 
     if (typeof syncKarutaCardToMysqlIfNew === "function") {
       syncKarutaCardToMysqlIfNew({
@@ -276,15 +278,39 @@ async function handleKarutaMessage(message, settings) {
       .filter(Boolean);
 
     for (const line of lines) {
-      const match = line.match(
-        /`(?:\d+)`\.\s*`♡([\d,]+)`\s*·\s*(.+?)\s*·\s*\*\*(.+?)\*\*/i,
-      );
-      if (!match) continue;
-      const [, wishlist, series, name] = match;
+      const parsed = parseKarutaResultLine(line);
+      if (!parsed) continue;
       upsertKarutaCard({
-        displayName: name,
-        displaySeries: series,
-        wishlist,
+        displayName: parsed.displayName,
+        displaySeries: parsed.displaySeries,
+        wishlist: parsed.wishlist,
+        cardUrl: "",
+      });
+    }
+    return;
+  }
+
+  const authorName = String(embed?.author?.name || "").trim();
+  if (
+    title === "Cached Results" &&
+    (
+      authorId === String(global.botIds.karutaLeg || "") ||
+      authorName === "Queen's Right Leg"
+    )
+  ) {
+    const lines = String(description || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const parsed = parseKarutaResultLine(line);
+      if (!parsed) continue;
+
+      upsertKarutaCard({
+        displayName: parsed.displayName,
+        displaySeries: parsed.displaySeries,
+        wishlist: parsed.wishlist,
         cardUrl: "",
       });
     }

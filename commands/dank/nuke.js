@@ -339,6 +339,14 @@ async function handleDankNukeButton(interaction) {
   const [, action, ownerId] = customId.split(":");
 
   if (action === "claim") {
+    if (!ownerId || String(ownerId) !== String(interaction.user.id)) {
+      await interaction.reply({
+        content: "Only the nuke host can add this payout to the tracker.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     const claimEntries = readClaimEntriesFromState(interaction.message?.id);
     if (!claimEntries.length) {
       await interaction.reply({
@@ -348,7 +356,7 @@ async function handleDankNukeButton(interaction) {
       return;
     }
 
-    const applied = applyClaimToUser(interaction.user.id, claimEntries);
+    const applied = applyClaimToUser(ownerId, claimEntries);
     await interaction.reply({
       content: `Added nuke claim: ⏣ ${formatCoins(applied.addedRevenue)}.`,
       flags: MessageFlags.Ephemeral,

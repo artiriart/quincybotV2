@@ -28,6 +28,29 @@ const dank_adventure_ticket_map = {
   "Pepe goes to Brazil!": 3,
 };
 
+function collectComponentText(input, output = []) {
+  if (Array.isArray(input)) {
+    for (const entry of input) {
+      collectComponentText(entry, output);
+    }
+    return output;
+  }
+
+  if (!input || typeof input !== "object") {
+    return output;
+  }
+
+  if (typeof input.content === "string" && input.content.trim()) {
+    output.push(input.content);
+  }
+
+  if (Array.isArray(input.components)) {
+    collectComponentText(input.components, output);
+  }
+
+  return output;
+}
+
 function getMultiplierEmojiMarkdown(multiplierType) {
   const key = String(multiplierType || "")
     .trim()
@@ -430,15 +453,22 @@ async function handleDankMessage(message, oldMessage, settings) {
     return;
   }
 
-  if (
-    message?.components?.[0]?.components?.some(
-      (c) => c?.type === 10 && c?.content?.includes("Coin Nuke**"),
-    )
-  ) {
-    const componentText = message?.components?.[0]?.components?.find(
-      (c) => c?.type === 10 && c?.content?.includes("Coin Nuke**"),
-    )?.content;
-    const host = componentText?.split("'s")[0]?.trim();
+  const componentTexts = collectComponentText(message?.components);
+  const componentText = componentTexts.find((text) =>
+    String(text || "").includes("Coin Nuke**"),
+  );
+  const hasInventoryText = componentTexts.some((text) =>
+    /\binventory\b/i.test(String(text || "")),
+  );
+
+  if (componentText && !hasInventoryText) {
+    const hostUser = await resolveDankUser(message);
+    const hostUserId = String(hostUser?.id || "").trim();
+    if (!hostUserId) return;
+
+    const host =
+      String(hostUser?.globalName || hostUser?.username || "").trim() ||
+      componentText?.split("'s")[0]?.trim();
     if (!host) return;
 
     let totalPayout = 0;
@@ -485,6 +515,8 @@ async function handleDankMessage(message, oldMessage, settings) {
       });
     }
 
+    if (!nukePayouts.length || totalPayout <= 0) return;
+
     const container = new ContainerBuilder().addSectionComponents(
       new SectionBuilder()
         .addTextDisplayComponents(
@@ -497,7 +529,7 @@ async function handleDankMessage(message, oldMessage, settings) {
             .setLabel("Add to tracker")
             .setEmoji(global.db.getFeatherEmojiMarkdown("database"))
             .setStyle(ButtonStyle.Primary)
-            .setCustomId("danknuke:claim"),
+            .setCustomId(`danknuke:claim:${hostUserId}`),
         ),
     );
 

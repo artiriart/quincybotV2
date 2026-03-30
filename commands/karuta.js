@@ -14,6 +14,10 @@ const {
 } = require("discord.js");
 const { buttonHandlers } = require("../functions/interactions/button");
 const { modalHandlers } = require("../functions/interactions/modal");
+const {
+  canonicalizeKarutaKey,
+  compactKarutaKey,
+} = require("../functions/karutaData");
 const { recognizeKarutaCardsFromUrl } = require("../functions/karutaOcr");
 const { recognizeKarutaCardsWithGemmaFromUrl } = require("../functions/karutaGemma");
 
@@ -74,13 +78,6 @@ function parseWishlistCustomId(customId) {
   };
 }
 
-function normalizeKarutaKey(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "");
-}
-
 function parseEmojiValue(raw) {
   const text = String(raw || "").trim();
   if (!text) return null;
@@ -107,7 +104,8 @@ function applyButtonEmoji(button, emoji) {
 
 function resolveKarutaSeriesByLooseQuery(query) {
   const raw = String(query || "").trim();
-  const normalized = normalizeKarutaKey(raw);
+  const normalized = canonicalizeKarutaKey(raw);
+  const compact = compactKarutaKey(raw);
   if (!raw || !normalized) return null;
 
   return (
@@ -121,7 +119,7 @@ function resolveKarutaSeriesByLooseQuery(query) {
           (
             SELECT c2.card_url
             FROM karuta_cards c2
-            WHERE c2.series = karuta_cards.series
+            WHERE REPLACE(c2.series, ' ', '') = REPLACE(karuta_cards.series, ' ', '')
               AND COALESCE(c2.card_url, '') <> ''
             ORDER BY RANDOM()
             LIMIT 1
@@ -130,14 +128,27 @@ function resolveKarutaSeriesByLooseQuery(query) {
         ) AS card_url
       FROM karuta_cards
       WHERE series = ?
-         OR LOWER(COALESCE(display_series, '')) = LOWER(?)
+         OR LOWER(COALESCE(display_series, '')) = ?
          OR name = ?
-         OR LOWER(COALESCE(display_name, '')) = LOWER(?)
+         OR LOWER(COALESCE(display_name, '')) = ?
+         OR REPLACE(series, ' ', '') = ?
+         OR REPLACE(name, ' ', '') = ?
+         OR REPLACE(LOWER(COALESCE(display_series, '')), ' ', '') = ?
+         OR REPLACE(LOWER(COALESCE(display_name, '')), ' ', '') = ?
       GROUP BY series, COALESCE(display_series, series)
       ORDER BY wishlist DESC, LENGTH(COALESCE(display_series, series)) ASC
       LIMIT 1
       `,
-      [normalized, raw, normalized, raw],
+      [
+        normalized,
+        normalized,
+        normalized,
+        normalized,
+        compact,
+        compact,
+        compact,
+        compact,
+      ],
     )?.[0] ||
     global.db.safeQuery(
       `
@@ -149,7 +160,7 @@ function resolveKarutaSeriesByLooseQuery(query) {
           (
             SELECT c2.card_url
             FROM karuta_cards c2
-            WHERE c2.series = karuta_cards.series
+            WHERE REPLACE(c2.series, ' ', '') = REPLACE(karuta_cards.series, ' ', '')
               AND COALESCE(c2.card_url, '') <> ''
             ORDER BY RANDOM()
             LIMIT 1
@@ -158,20 +169,36 @@ function resolveKarutaSeriesByLooseQuery(query) {
         ) AS card_url
       FROM karuta_cards
       WHERE series LIKE ?
-         OR LOWER(COALESCE(display_series, '')) LIKE LOWER(?)
+         OR LOWER(COALESCE(display_series, '')) LIKE ?
          OR name LIKE ?
-         OR LOWER(COALESCE(display_name, '')) LIKE LOWER(?)
+         OR LOWER(COALESCE(display_name, '')) LIKE ?
+         OR REPLACE(series, ' ', '') LIKE ?
+         OR REPLACE(name, ' ', '') LIKE ?
+         OR REPLACE(LOWER(COALESCE(display_series, '')), ' ', '') LIKE ?
+         OR REPLACE(LOWER(COALESCE(display_name, '')), ' ', '') LIKE ?
       GROUP BY series, COALESCE(display_series, series)
       ORDER BY
         CASE
           WHEN series LIKE ? THEN 0
+          WHEN REPLACE(series, ' ', '') LIKE ? THEN 0
           ELSE 1
         END,
         wishlist DESC,
         LENGTH(COALESCE(display_series, series)) ASC
       LIMIT 1
       `,
-      [`%${normalized}%`, `%${raw}%`, `%${normalized}%`, `%${raw}%`, `${normalized}%`],
+      [
+        `%${normalized}%`,
+        `%${normalized}%`,
+        `%${normalized}%`,
+        `%${normalized}%`,
+        `%${compact}%`,
+        `%${compact}%`,
+        `%${compact}%`,
+        `%${compact}%`,
+        `${normalized}%`,
+        `${compact}%`,
+      ],
     )?.[0] ||
     null
   );
@@ -189,7 +216,7 @@ function listWishlistRows(userId, guildId) {
         (
           SELECT c0.display_series
           FROM karuta_cards c0
-          WHERE c0.series = w.series
+          WHERE REPLACE(c0.series, ' ', '') = REPLACE(w.series, ' ', '')
             AND COALESCE(c0.display_series, '') <> ''
           ORDER BY c0.wishlist DESC
           LIMIT 1
@@ -200,7 +227,7 @@ function listWishlistRows(userId, guildId) {
         (
           SELECT SUM(COALESCE(c1.wishlist, 0))
           FROM karuta_cards c1
-          WHERE c1.series = w.series
+          WHERE REPLACE(c1.series, ' ', '') = REPLACE(w.series, ' ', '')
         ),
         0
       ) AS wishlist,
@@ -208,7 +235,7 @@ function listWishlistRows(userId, guildId) {
         (
           SELECT c2.card_url
           FROM karuta_cards c2
-          WHERE c2.series = w.series
+          WHERE REPLACE(c2.series, ' ', '') = REPLACE(w.series, ' ', '')
             AND COALESCE(c2.card_url, '') <> ''
           ORDER BY RANDOM()
           LIMIT 1
@@ -228,7 +255,7 @@ function dedupeWishlistRows(rows) {
   const seen = new Set();
   const unique = [];
   for (const row of rows || []) {
-    const key = String(row?.series || "").trim().toLowerCase();
+    const key = compactKarutaKey(row?.series);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     unique.push(row);
