@@ -1,60 +1,55 @@
-- make files shorter by moving helper functions or creating dirs
+- make files shorter by moving helper functions or creating dirs and making code less obfuscated overall
 - find ways to make RAM usage lower
 
 - 7w7:
-    - raid guide via reacts on raid menus
-    - (test) ticket refill notifier + setting on x tickets
+    - implement: raid guide via reacts on raid menus
+    - test: ticket refill notifier + setting on x tickets
 
 - anigame:
-    - (test) cl/f reminder & fix claim
+    - test: cl/f reminder & fix claim
+    - implement: raidlist
 
 - karuta:
-    - (test) visit reminders
+    - test: visit reminders
 
-- lab (low prio):
-    - reconstruct whole module to work better
-    - Component V2 & better menus & home UI with all features
-    - keep older logic in terms of core game logic
+- lab:
+    - implement:
+        - reconstruct whole module as before (copycat neal.fun infinitecraft)
+        - Component V2 & better menus & home UI with all features
+        - keep older logic in terms of core game logic
 
 - izzi:
-    - raidlist
-    - crate opening helper / extractor
-    - index market via ci
-    - (test) event shard extractor
-    - fix: claim
+    - implement: raidlist
+    - implement: crate opening helper / extractor
+    - implement: index market via ci for raidlist
+    - test: event shard extractor
+    - fix: claim, initial command != slash command
 
 - dank:
-    - (fix) weekly bundle box reminders
-    - (test) multiplier stats
-    - (edit) do sync daily aka make it sync, not one time thing (sync = check which combinations not in table, fetch simulator if needed). also startup sync is ran daily too
-    - for coins dont save Prestige 17 / omega stuff to dank_multipliers table too.
-    - on /multipliers XP if page 1 add "record" reaction, will clean all XP multipliers,
-      then wait for last page (add "done" reaction),
-      then show all missing XP multipliers
-    - redo trade reminder
+    - fix: weekly bundle box reminders
+    - fix: do sync daily aka make it sync, not one time thing (sync = check which combinations not in table, fetch simulator if needed). also startup sync is ran daily too
 
 - utility:
-    - list all reminders command
-    - setup github actions for push webhook notification
-    - upload Quincy db periodically to discord via gzip'ing tables (json) as backup
+    - implement: list all reminders command
+    - implement: upload Quincy db periodically to discord via gzip'ing tables (json) as backup
 
-- clash royale
-    - betroyale
+- clash royale:
+    - betroyale:
         - test: Terminating matches
         - refractors: better canvas (only card emojis + name)
         - refractors: show avg. Elixir cost of current deck in ephermal
         - refractors: show latest Card picked in non ephermal in "Status:" section
         - test: test evo/hero events
-    - speedroyale
-        - implement: 
+    - speedroyale:
+        - implement:
             - 5x5 Button rows to select from
-            - speed: everyone can select whatever they want, no restrictions except Row 5
-            - Row 5: Evos/Champs/Heros, everyone can pick 1/round (2 total)
+            - everyone can select whatever they want, no restrictions except Row 5
+            - Row 5 Evos/Champs/Heros, everyone can pick 1/round (2 total)
             - 2-4 player support
             - 2 rounds with 5x5 cards (can pick 4 cards each)
             - show final deck with links after both rounds trough
-    - rngroyale
-        - implement: 
+    - rngroyale:
+        - implement:
             - 5x Cards each round, only show rarity or elixir
             - players can pick 1 card each round (random if pick same)
             - present table with cards that got picked
