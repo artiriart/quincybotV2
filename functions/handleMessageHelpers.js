@@ -17,7 +17,9 @@ function extractUserFromMention(text) {
 async function findUserByUsername(username) {
   const normalized = String(username || "").trim();
   if (!normalized) return null;
-  return global.bot?.users?.cache?.find((u) => u.username === normalized) || null;
+  return (
+    global.bot?.users?.cache?.find((u) => u.username === normalized) || null
+  );
 }
 
 async function resolveReferencedAuthor(message) {
@@ -69,7 +71,9 @@ function createSettingsReader() {
       [userId, type],
     )?.[0];
 
-    const enabled = row ? row.toggle === 1 || row.toggle === true : defaultValue;
+    const enabled = row
+      ? row.toggle === 1 || row.toggle === true
+      : defaultValue;
     toggleCache.set(key, enabled);
     return enabled;
   }
@@ -124,7 +128,12 @@ function createSettingsReader() {
     }
 
     const text = String(raw).trim().toLowerCase();
-    const value = !(text === "0" || text === "false" || text === "off" || text === "disabled");
+    const value = !(
+      text === "0" ||
+      text === "false" ||
+      text === "off" ||
+      text === "disabled"
+    );
     guildToggleCache.set(key, value);
     return value;
   }
@@ -204,7 +213,9 @@ function stripMarkdownLink(text) {
 }
 
 function parseMultiplierAmount(token, type) {
-  const compact = String(token || "").replaceAll(" ", "").trim();
+  const compact = String(token || "")
+    .replaceAll(" ", "")
+    .trim();
   if (!compact) return null;
 
   if (type === "xp") {
@@ -448,6 +459,24 @@ function indexDankMultiplierSnapshot(userId, type, description) {
       normalizedType === "xp" &&
       String(entry.name || "").toLowerCase() === "shredded cheese";
     const amountToStore = isShreddedCheeseXp ? 1.5 : entry.amount;
+
+    const isIgnoreXp = String(entry.name || "")
+      .toLowerCase()
+      ?.includes([
+        "low level",
+        "new user",
+        "level up rewards",
+        "delta 9 roll",
+        "miscellaneous",
+      ]);
+
+    if (isIgnoreXp) {
+      global.db.safeQuery(
+        `DELETE FROM dank_multipliers WHERE type = ? AND LOWER(name) = LOWER(?)`,
+        [normalizedType, entry.name],
+      );
+      continue;
+    }
 
     if (isShreddedCheeseXp) {
       global.db.safeQuery(

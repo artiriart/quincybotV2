@@ -13,6 +13,9 @@ const IZZI_ABILITIES_URL = "https://api.izzi-xenex.xyz/api/v1/ums/abilities";
 const IZZI_ITEMS_URL = "https://api.izzi-xenex.xyz/api/v1/ums/items";
 const ANIGAME_SHEET_GVIZ_URL =
   "https://docs.google.com/spreadsheets/d/14qAWkLyjMCI6VXgEgtWWDlDq5MQfotHhLYW6p-Qntlc/gviz/tq?tqx=out:json&sheet=cards";
+const CLASH_ROYALE_CARDS_URL = "https://api.clashroyale.com/v1/cards";
+const CLASH_ROYALE_ASSETS_BASE_URL =
+  "https://raw.githubusercontent.com/RoyaleAPI/cr-api-assets/master/cards-75";
 
 const CUSTOM_DANK_VALUES_PATH = path.join(
   __dirname,
@@ -1065,44 +1068,171 @@ async function syncAnigameCards(sqlite) {
   );
 }
 
+async function syncClashRoyaleCards(sqlite, existingEmojis) {
+  const key = process.env.CLASH_ROYALE_KEY;
+  if (!key) {
+    console.warn("Clash Royale sync skipped: CLASH_ROYALE_KEY missing in .env");
+    return;
+  }
+
+  const app = global.bot?.application;
+  const payload = await fetchJson(CLASH_ROYALE_CARDS_URL, "Clash Royale cards", {
+    Authorization: `Bearer ${key}`,
+  });
+
+  const cards = Array.isArray(payload?.items) ? payload.items : [];
+  const supportItems = Array.isArray(payload?.supportItems)
+    ? payload.supportItems
+    : [];
+  const allEntries = [...cards, ...supportItems];
+
+  const GITHUB_CONTENTS_URL =
+    "https://api.github.com/repos/RoyaleAPI/cr-api-assets/contents/cards-75";
+  const repoFiles = await fetchJson(
+    GITHUB_CONTENTS_URL,
+    "RoyaleAPI asset list",
+    {
+      "User-Agent": "quincybotV2",
+    },
+  ).catch(() => []);
+
+  const fileMap = new Map();
+  if (Array.isArray(repoFiles)) {
+    for (const file of repoFiles) {
+      if (file.type === "file" && file.download_url) {
+        fileMap.set(String(file.name).toLowerCase(), file.download_url);
+      }
+    }
+  }
+
+  const upsertCR = sqlite.prepare(`
+    INSERT INTO clash_royale_cards (name, card_emoji, hero_emoji, evo_emoji, rarity, elixir_cost)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(name) DO UPDATE SET
+      card_emoji = COALESCE(excluded.card_emoji, clash_royale_cards.card_emoji),
+      hero_emoji = COALESCE(excluded.hero_emoji, clash_royale_cards.hero_emoji),
+      evo_emoji = COALESCE(excluded.evo_emoji, clash_royale_cards.evo_emoji),
+      rarity = excluded.rarity,
+      elixir_cost = excluded.elixir_cost
+  `);
+
+  let createdEmojis = 0;
+  const slugify = (name) =>
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+  for (const card of allEntries) {
+    const name = String(card.name || "").trim();
+    if (!name) continue;
+
+    const slug = slugify(name);
+    const rarity = card.rarity || null;
+    const elixir = toNullableInt(card.elixirCost);
+
+    // Helper to ensure emoji and return markdown
+    const getEmoji = async (type, filename) => {
+      const url = fileMap.get(filename.toLowerCase());
+      if (!url) return null;
+
+      const emojiName = normalizeEmojiName(`${slug}_${type}`, "cr_");
+      let emoji = existingEmojis.get(emojiName.toLowerCase()) || null;
+      if (!emoji && app?.emojis) {
+        emoji = await ensureApplicationEmoji(
+          app,
+          existingEmojis,
+          emojiName,
+          url,
+          `CR ${type}`,
+        );
+        if (emoji) createdEmojis += 1;
+      }
+      return emojiMarkdown(emoji);
+    };
+
+    const cardEmojiMd = await getEmoji("card", `${slug}.png`);
+    const heroEmojiMd = await getEmoji("hero", `${slug}-hero.png`);
+    const evoEmojiMd = await getEmoji("evo", `${slug}-ev1.png`);
+
+    upsertCR.run(name, cardEmojiMd, heroEmojiMd, evoEmojiMd, rarity, elixir);
+  }
+
+  console.log(
+    `${colorSyncLabel("Clash Royale sync complete:")} ${colorMetric(allEntries.length)} cards/items processed, ${colorMetric(createdEmojis, "yellow")} emojis created.`,
+  );
+}
+
+function scheduleDailyAtZeroUTC(task) {
+  const now = new Date();
+  const nextRun = new Date(now);
+  nextRun.setUTCHours(24, 0, 0, 0); // Next 0 UTC
+  const delay = nextRun.getTime() - now.getTime();
+
+  console.log(
+    `${colors.bold.blue("[scheduler]")} Next daily sync scheduled at ${colors.bold.white(nextRun.toUTCString())} (in ${colorMetric(Math.round(delay / 60000), "yellow")} minutes)`,
+  );
+
+  setTimeout(async () => {
+    try {
+      console.log(`${colors.bold.blue("[scheduler]")} Running scheduled daily sync...`);
+      await task();
+    } catch (err) {
+      console.error("[scheduler] Daily sync task failed:", err);
+    }
+    // Schedule next day
+    scheduleDailyAtZeroUTC(task);
+  }, delay);
+}
+
+async function runStartupSyncSteps() {
+  const sqlite = global.db?.db;
+  if (!sqlite) {
+    console.warn("Sync skipped: sqlite handle unavailable.");
+    return;
+  }
+
+  await runOneTimeEmojiReset(sqlite);
+  const existingEmojis = await getApplicationEmojiMap();
+
+  const steps = [
+    () => syncDankItemsAndEmojis(sqlite, existingEmojis),
+    async () => {
+      const {
+        ensureStartupMythicalChancesIndex,
+      } = require("./dank/fishSimulator");
+      await ensureStartupMythicalChancesIndex({ onlyIfMissing: true });
+    },
+    () => syncFeatherEmojis(sqlite, existingEmojis),
+    () => syncDecoEmojis(sqlite, existingEmojis),
+    () => syncIzziCards(sqlite),
+    () => syncIzziAbilities(sqlite),
+    () => syncIzziItems(sqlite),
+    () => syncAnigameCards(sqlite),
+    () => syncClashRoyaleCards(sqlite, existingEmojis),
+  ];
+
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      console.error("Sync step failed:", error?.message || error);
+    }
+  }
+
+  console.log(colors.rainbow(colors.bold("Sync complete.")));
+}
+
 async function runStartupSync() {
   if (startupSyncPromise) {
     return startupSyncPromise;
   }
 
   startupSyncPromise = (async () => {
-    const sqlite = global.db?.db;
-    if (!sqlite) {
-      console.warn("Startup sync skipped: sqlite handle unavailable.");
-      return;
-    }
+    await runStartupSyncSteps();
 
-    await runOneTimeEmojiReset(sqlite);
-    const existingEmojis = await getApplicationEmojiMap();
-
-    const steps = [
-      () => syncDankItemsAndEmojis(sqlite, existingEmojis),
-      async () => {
-        const { ensureStartupMythicalChancesIndex } = require("./dank/fishSimulator");
-        await ensureStartupMythicalChancesIndex({ onlyIfMissing: true });
-      },
-      () => syncFeatherEmojis(sqlite, existingEmojis),
-      () => syncDecoEmojis(sqlite, existingEmojis),
-      () => syncIzziCards(sqlite),
-      () => syncIzziAbilities(sqlite),
-      () => syncIzziItems(sqlite),
-      () => syncAnigameCards(sqlite),
-    ];
-
-    for (const step of steps) {
-      try {
-        await step();
-      } catch (error) {
-        console.error("Startup sync step failed:", error?.message || error);
-      }
-    }
-
-    console.log(colors.rainbow(colors.bold("Startup sync complete.")));
+    // Schedule next run at 0 UTC
+    scheduleDailyAtZeroUTC(runStartupSyncSteps);
   })();
 
   return startupSyncPromise;

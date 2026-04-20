@@ -112,6 +112,25 @@ async function handleKarutaDropRecognition(message, settings) {
     loadTimeSec = Number(result?.load_time_sec);
   } catch (error) {
     console.error("[karuta-drop] recognition failed:", error?.message || error);
+    if (String(error?.message || "").includes("(503)")) {
+      const container = new ContainerBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent("## Failed analysing Karuta Drop"),
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
+            "-# Couldnt process Drop data, since API is overloaded.",
+          ),
+        );
+
+      await message.channel
+        .send({
+          components: [container],
+          flags: MessageFlags.IsComponentsV2,
+        })
+        .catch(() => {});
+    }
     return;
   }
 

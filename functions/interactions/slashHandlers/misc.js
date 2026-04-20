@@ -603,8 +603,6 @@ const HELP_CATEGORY_OPTIONS = [
   { label: "Karuta", value: "karuta" },
   { label: "7w7", value: "7w7" },
   { label: "Lab", value: "lab" },
-  { label: "Utilities", value: "utils" },
-  { label: "Roadmap", value: "roadmap" },
 ];
 
 const HELP_CONTENT = {
@@ -660,11 +658,7 @@ const HELP_CONTENT = {
     "* Perk cooldown tracking + reminder scheduling",
     "-# Preset viewer, raid help dump review, and ticket refill notifier are completed in active workflow.",
   ].join("\n"),
-  lab: [
-    "### Lab",
-    "* Core module wiring available",
-    "-# Module reconstruction, V2 menus, and improved home UI are completed in active workflow.",
-  ].join("\n"),
+  lab: "WIP not somewhen soon",
   utils: [
     "### Utilities",
     "* Reminder poller + snooze/delete interactions",

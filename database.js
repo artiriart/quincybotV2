@@ -79,6 +79,16 @@ const schema = {
     _constraint:
       "PRIMARY KEY (creature_id, location_id, tool_id, bait_id, hour_utc, is_tuesday)",
   },
+  // ===== CLASH ROYALE DATA =====
+  clash_royale_cards: {
+    name: "TEXT NOT NULL",
+    card_emoji: "TEXT DEFAULT NULL",
+    hero_emoji: "TEXT DEFAULT NULL",
+    evo_emoji: "TEXT DEFAULT NULL",
+    rarity: "TEXT DEFAULT NULL",
+    elixir_cost: "INTEGER DEFAULT NULL",
+    _constraint: "PRIMARY KEY (name)",
+  },
   // ===== 7W7 BOT DATA =====
   // ===== ANIME BOTS DATA =====
   card_stats: {

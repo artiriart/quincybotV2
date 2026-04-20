@@ -15,7 +15,7 @@ const { buttonHandlers } = require("../../functions/interactions/button");
 const { selectMenuHandlers } = require("../../functions/interactions/selectMenu");
 const { modalHandlers } = require("../../functions/interactions/modal");
 
-const ROUTE_PREFIX = "dankstats";
+const ROUTE_PREFIX = "ds";
 const ITEMS_PER_PAGE = 8;
 const DELETE_QUERY_INPUT_ID = "delete_query";
 
@@ -103,10 +103,10 @@ function formatEmojiForHeadline(raw) {
 
 function parseDeleteScope(scopeValue) {
   const parts = String(scopeValue || "").split("|");
-  if (parts[0] === "main" && parts[1]) {
+  if (parts[0] === "m" && parts[1]) {
     return { type: "main", main: parts[1], sub: null };
   }
-  if (parts[0] === "sub" && parts[1] && parts[2]) {
+  if (parts[0] === "s" && parts[1] && parts[2]) {
     return { type: "sub", main: parts[1], sub: parts[2] };
   }
   return null;
@@ -116,7 +116,7 @@ function buildDeleteScopeOptions(main, sub, hasSubcategory) {
   const options = [];
   options.push({
     label: `All ${main}`.slice(0, 100),
-    value: `main|${main}`.slice(0, 100),
+    value: `m|${main}`.slice(0, 100),
     default: sub === "__all__" || !hasSubcategory,
     description: `Delete all ${main} records`.slice(0, 100),
   });
@@ -124,7 +124,7 @@ function buildDeleteScopeOptions(main, sub, hasSubcategory) {
   if (hasSubcategory && sub !== "__all__") {
     options.unshift({
       label: `${main} / ${sub}`.slice(0, 100),
-      value: `sub|${main}|${sub}`.slice(0, 100),
+      value: `s|${main}|${sub}`.slice(0, 100),
       default: true,
       description: `Delete only ${sub} records`.slice(0, 100),
     });
@@ -488,8 +488,8 @@ function buildDankStatsPayload(viewState) {
     deleteScope:
       currentDeleteScope &&
       (currentDeleteScope.type === "sub"
-        ? `sub|${currentDeleteScope.main}|${currentDeleteScope.sub}`
-        : `main|${currentDeleteScope.main}`),
+        ? `s|${currentDeleteScope.main}|${currentDeleteScope.sub}`
+        : `m|${currentDeleteScope.main}`),
   };
 
   const leftEmoji = parseEmojiValue(global.db.getFeatherEmojiMarkdown("chevron-left")) || {
@@ -516,17 +516,17 @@ function buildDankStatsPayload(viewState) {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(buildViewCustomId(normalizedView, "page", page - 1))
+          .setCustomId(buildViewCustomId(normalizedView, "p", page - 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(leftEmoji)
           .setDisabled(page <= 0),
         new ButtonBuilder()
-          .setCustomId(buildViewCustomId(normalizedView, "page", page))
+          .setCustomId(buildViewCustomId(normalizedView, "p", page))
           .setStyle(ButtonStyle.Secondary)
           .setLabel(`${page + 1}/${totalPages}`)
           .setDisabled(true),
         new ButtonBuilder()
-          .setCustomId(buildViewCustomId(normalizedView, "page", page + 1))
+          .setCustomId(buildViewCustomId(normalizedView, "p", page + 1))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji(rightEmoji)
           .setDisabled(page >= totalPages - 1),
@@ -534,7 +534,7 @@ function buildDankStatsPayload(viewState) {
           .setCustomId(
             buildViewCustomId(
               { ...viewState, showMultipliers: !viewState.showMultipliers },
-              "toggle_multis",
+              "tm",
               page,
             ),
           )
@@ -554,7 +554,7 @@ function buildDankStatsPayload(viewState) {
           .setCustomId(
             buildViewCustomId(
               { ...normalizedView, showDeleteUI: true },
-              "toggle_delete",
+              "td",
               0,
             ),
           )
@@ -585,7 +585,7 @@ function buildDankStatsPayload(viewState) {
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(buildViewCustomId(normalizedView, "sub", page))
+            .setCustomId(buildViewCustomId(normalizedView, "s", page))
             .setPlaceholder("Select Subcategory")
             .addOptions(buildSubOptions(safeMain, subCategories, safeSub)),
         ),
@@ -600,7 +600,7 @@ function buildDankStatsPayload(viewState) {
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId(buildViewCustomId(normalizedView, "main", page))
+          .setCustomId(buildViewCustomId(normalizedView, "m", page))
           .setPlaceholder("Select Main Category")
           .addOptions(buildMainOptions(mainCategories, safeMain)),
       ),
@@ -615,7 +615,7 @@ function buildDankStatsPayload(viewState) {
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(buildViewCustomId(normalizedView, "del_scope", page))
+            .setCustomId(buildViewCustomId(normalizedView, "sc", page))
             .setPlaceholder("Select what to delete")
             .addOptions(
               buildDeleteScopeOptions(
@@ -628,8 +628,8 @@ function buildDankStatsPayload(viewState) {
                   currentDeleteScope &&
                   opt.value ===
                     (currentDeleteScope.type === "sub"
-                      ? `sub|${currentDeleteScope.main}|${currentDeleteScope.sub}`
-                      : `main|${currentDeleteScope.main}`),
+                      ? `s|${currentDeleteScope.main}|${currentDeleteScope.sub}`
+                      : `m|${currentDeleteScope.main}`),
               })),
             ),
         ),
@@ -637,7 +637,7 @@ function buildDankStatsPayload(viewState) {
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(buildViewCustomId(normalizedView, "del_input", page))
+            .setCustomId(buildViewCustomId(normalizedView, "di", page))
             .setLabel("Delete Data")
             .setStyle(ButtonStyle.Danger)
             .setEmoji(
@@ -681,16 +681,16 @@ async function handleDankStatsButton(interaction) {
     return;
   }
 
-  if (action === "page") {
+  if (action === "p") {
     state.page = Math.max(0, Number(state.page || 0));
-  } else if (action === "toggle_delete") {
+  } else if (action === "td") {
     state.showDeleteUI = true;
     state.page = 0;
-  } else if (action === "toggle_multis") {
+  } else if (action === "tm") {
     state.showMultipliers = !state.showMultipliers;
-  } else if (action === "del_input") {
+  } else if (action === "di") {
     const modal = new ModalBuilder()
-      .setCustomId(buildViewCustomId(state, "del_modal", state.page))
+      .setCustomId(buildViewCustomId(state, "dm", state.page))
       .setTitle("Delete Dank Stats Data")
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -727,14 +727,14 @@ async function handleDankStatsSelect(interaction) {
   const selected = interaction.values?.[0];
   if (!selected) return;
 
-  if (action === "main") {
+  if (action === "m") {
     state.main = selected;
     state.sub = "__all__";
     state.page = 0;
-  } else if (action === "sub") {
+  } else if (action === "s") {
     state.sub = selected;
     state.page = 0;
-  } else if (action === "del_scope") {
+  } else if (action === "sc") {
     state.deleteScope = selected;
     state.showDeleteUI = true;
   } else {
@@ -746,7 +746,7 @@ async function handleDankStatsSelect(interaction) {
 
 async function handleDankStatsModal(interaction) {
   const parsed = parseViewCustomId(interaction.customId);
-  if (!parsed || parsed.action !== "del_modal") return;
+  if (!parsed || parsed.action !== "dm") return;
   const state = parsed.state;
   if (state.userId !== interaction.user.id) {
     await interaction.reply({

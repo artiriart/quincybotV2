@@ -1115,8 +1115,8 @@ function buildOmegaPrestigePayload(calcType, amount, ownerUserId = null) {
   const deleteCustomId = `utility:delete:${ownerUserId || "null"}`;
 
   if (type === "prestige") {
-    const coinsNormal = 28_500_000 * n;
-    const coinsPremium = 15_000_000 * n;
+    const coinsNormal = Math.min(1_200_000_000, 28_500_000 * n);
+    const coinsPremium = Math.min(600_000_000, 15_000_000 * n);
     const levelNormal = 85 * n;
     const levelPremium = 65 * n;
     const xpReward = ceilTo2(0.012 * n);

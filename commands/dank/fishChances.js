@@ -108,6 +108,9 @@ function summarizeValue(entry, fishMap, emojiMap, itemById) {
       const emoji = withEmojiSpacing(item.emoji) || "🎁 ";
       return `${emoji}${item.name} x${qty}`;
     }
+    if (String(itemId) === "unknown") {
+      return "🏷️ Title";
+    }
     return `🎁 Loot Item #${itemId} x${qty}`;
   }
   if (type === "npc") return "🧑 NPC Encounter";
@@ -256,7 +259,11 @@ function resolveSimulationOutcome(entry, fishMap, emojiMap, itemById, failEmoji)
     return {
       key: `item:${Number.isFinite(itemId) ? itemId : "unknown"}`,
       group: 2,
-      label: item?.emoji ? `${item.emoji} ${item.name}` : "🎁 Loot",
+      label: item?.emoji
+        ? `${item.emoji} ${item.name}`
+        : String(value?.reward?.item) === "unknown"
+          ? "🏷️ Title"
+          : "🎁 Loot",
     };
   }
   if (type === "npc") return { key: "npc", group: 4, label: "🧑 NPC" };

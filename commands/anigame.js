@@ -440,7 +440,12 @@ function buildClaimRecordsText(userId, botKey) {
   }
 
   return rows
-    .map((row) => `* **${String(row?.rarity || "Unknown")}** - \`${Number(row?.amount || 0).toLocaleString()}\``)
+    .map((row) => {
+      const rarity = String(row?.rarity || "Unknown");
+      const emoji =
+        botKey === "anigame" ? getAnigameRarityEmoji(rarity) || "" : "";
+      return `* ${emoji ? `${emoji} ` : ""}**${rarity}** - \`${Number(row?.amount || 0).toLocaleString()}\``.trim();
+    })
     .join("\n");
 }
 
@@ -449,17 +454,27 @@ function buildClaimMenuPayload(userId, botKey) {
   const container = new ContainerBuilder()
     .addSectionComponents(
       new SectionBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent("### Claimed Cards"))
-        .setButtonAccessory(
-          new ButtonBuilder()
-            .setCustomId(`${CLAIM_ROUTE_PREFIX}:switch:${userId}:${meta.switchTo}`)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(meta.switchLabel),
-        ),
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(`## ${meta.dbName} Claims`),
+        )
+        .setButtonAccessory((button) => {
+          applyButtonEmoji(
+            button
+              .setCustomId(
+                `${CLAIM_ROUTE_PREFIX}:switch:${userId}:${meta.switchTo}`,
+              )
+              .setStyle(ButtonStyle.Secondary)
+              .setLabel(meta.switchLabel),
+            parseEmojiValue(global.db.getFeatherEmojiMarkdown("menu")),
+          );
+          return button;
+        }),
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
     .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(buildClaimRecordsText(userId, meta.key)),
+      new TextDisplayBuilder().setContent(
+        buildClaimRecordsText(userId, meta.key),
+      ),
     );
 
   return {
