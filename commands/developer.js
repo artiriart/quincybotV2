@@ -53,6 +53,9 @@ const DANK_MULTIPLIER_EMOJI_INPUT_ID = "multi_emoji";
 const DANK_MULTIPLIER_DESCRIPTION_INPUT_ID = "multi_description";
 const KARUTA_RECOG_STATE_TYPE = "karuta_recognition_settings";
 
+// Clash Royale editor
+const CLASH_TOGGLE_SELECT_PREFIX = `${CUSTOM_ID_PREFIX}:clash:toggle`;
+
 function parseCsvRows(csvText) {
   const text = String(csvText || "").replace(/^\uFEFF/, "");
   const rows = [];
@@ -803,6 +806,63 @@ function listDankMultipliersByType(type) {
   );
 }
 
+function buildClashEditorPanel() {
+  const cards = global.db.safeQuery(`
+    SELECT name, card_emoji, is_event_only
+    FROM clash_royale_cards
+    ORDER BY name ASC
+  `);
+
+  if (!cards.length) {
+    return {
+      content: "No Clash Royale cards found in database.",
+      flags: MessageFlags.Ephemeral,
+    };
+  }
+
+  const container = new ContainerBuilder().addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      "## Clash Royale Event-Only Editor\nSelect a card to toggle its `is_event_only` status (✅ = event only).",
+    ),
+  );
+
+  const chunks = [];
+  for (let i = 0; i < cards.length; i += 25) {
+    chunks.push(cards.slice(i, i + 25));
+  }
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const select = new StringSelectMenuBuilder()
+      .setCustomId(`${CLASH_TOGGLE_SELECT_PREFIX}:${i}`)
+      .setPlaceholder(
+        `Cards ${i * 25 + 1} - ${Math.min((i + 1) * 25, cards.length)}`,
+      )
+      .addOptions(
+        chunk.map((c) => {
+          const emoji = parseEmojiValue(c.card_emoji);
+          const isEvent = Boolean(c.is_event_only);
+          return {
+            label: c.name.slice(0, 100),
+            value: c.name,
+            description: isEvent ? "Currently: EVENT ONLY" : "Currently: Normal",
+            emoji: isEvent ? "✅" : emoji || undefined,
+          };
+        }),
+      );
+
+    container.addActionRowComponents(
+      new ActionRowBuilder().addComponents(select),
+    );
+  }
+
+  return {
+    content: "",
+    components: [container],
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+  };
+}
+
 function getDankMultiplierMeta(type, name) {
   return (
     global.db.safeQuery(
@@ -1245,6 +1305,25 @@ async function handleDevSelect(interaction) {
     }
 
     await interaction.update(payload);
+    return;
+  }
+
+  if (customId.startsWith(`${CLASH_TOGGLE_SELECT_PREFIX}:`)) {
+    const cardName = interaction.values?.[0];
+    if (!cardName) return;
+
+    global.db.db
+      .prepare(
+        `
+      UPDATE clash_royale_cards
+      SET is_event_only = NOT is_event_only
+      WHERE name = ?
+    `,
+      )
+      .run(cardName);
+
+    await interaction.update(buildClashEditorPanel());
+    return;
   }
 }
 
@@ -1524,6 +1603,11 @@ module.exports = {
         )
         .addSubcommand((subcommand) =>
           subcommand
+            .setName("clash")
+            .setDescription("Edit Clash Royale card event-only status"),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
             .setName("dank-options")
             .setDescription("Panel to edit dank stats select option meta"),
         ),
@@ -1581,6 +1665,11 @@ module.exports = {
 
     if (group === "edit" && subcommand === "7w7-items") {
       await interaction.reply(build7w7ItemEditorPanel());
+      return;
+    }
+
+    if (group === "edit" && subcommand === "clash") {
+      await interaction.reply(buildClashEditorPanel());
       return;
     }
 

@@ -87,6 +87,7 @@ const schema = {
     evo_emoji: "TEXT DEFAULT NULL",
     rarity: "TEXT DEFAULT NULL",
     elixir_cost: "INTEGER DEFAULT NULL",
+    is_event_only: "BOOLEAN DEFAULT 0",
     _constraint: "PRIMARY KEY (name)",
   },
   // ===== 7W7 BOT DATA =====

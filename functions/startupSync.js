@@ -13,9 +13,8 @@ const IZZI_ABILITIES_URL = "https://api.izzi-xenex.xyz/api/v1/ums/abilities";
 const IZZI_ITEMS_URL = "https://api.izzi-xenex.xyz/api/v1/ums/items";
 const ANIGAME_SHEET_GVIZ_URL =
   "https://docs.google.com/spreadsheets/d/14qAWkLyjMCI6VXgEgtWWDlDq5MQfotHhLYW6p-Qntlc/gviz/tq?tqx=out:json&sheet=cards";
-const CLASH_ROYALE_CARDS_URL = "https://api.clashroyale.com/v1/cards";
-const CLASH_ROYALE_ASSETS_BASE_URL =
-  "https://raw.githubusercontent.com/RoyaleAPI/cr-api-assets/master/cards-75";
+const CLASH_ROYALE_CARDS_URL =
+  "https://raw.githubusercontent.com/RoyaleAPI/cr-api-data/master/docs/json/cards.json";
 
 const CUSTOM_DANK_VALUES_PATH = path.join(
   __dirname,
@@ -464,8 +463,11 @@ async function syncDankFishEntities(sqlite, existingEmojis, fishPayload) {
   }
 
   for (const locationId of locationIds) {
-    const rawLocation = locations.find((loc) => String(loc?.id || "") === locationId);
-    const locationName = String(rawLocation?.name || "").trim() || titleFromId(locationId);
+    const rawLocation = locations.find(
+      (loc) => String(loc?.id || "") === locationId,
+    );
+    const locationName =
+      String(rawLocation?.name || "").trim() || titleFromId(locationId);
     const locationImage = String(rawLocation?.imageURL || "").trim() || null;
     const locationEmoji = await resolveFishEntityEmoji({
       app,
@@ -1069,33 +1071,23 @@ async function syncAnigameCards(sqlite) {
 }
 
 async function syncClashRoyaleCards(sqlite, existingEmojis) {
-  const key = process.env.CLASH_ROYALE_KEY;
-  if (!key) {
-    console.warn("Clash Royale sync skipped: CLASH_ROYALE_KEY missing in .env");
-    return;
-  }
-
-  const app = global.bot?.application;
-  const payload = await fetchJson(CLASH_ROYALE_CARDS_URL, "Clash Royale cards", {
-    Authorization: `Bearer ${key}`,
-  });
-
-  const cards = Array.isArray(payload?.items) ? payload.items : [];
-  const supportItems = Array.isArray(payload?.supportItems)
-    ? payload.supportItems
-    : [];
-  const allEntries = [...cards, ...supportItems];
-
   const GITHUB_CONTENTS_URL =
     "https://api.github.com/repos/RoyaleAPI/cr-api-assets/contents/cards-75";
-  const repoFiles = await fetchJson(
-    GITHUB_CONTENTS_URL,
-    "RoyaleAPI asset list",
-    {
-      "User-Agent": "quincybotV2",
-    },
-  ).catch(() => []);
 
+  const [allEntries, repoFiles] = await Promise.all([
+    fetchJson(CLASH_ROYALE_CARDS_URL, "RoyaleAPI card data").catch(() => []),
+    fetchJson(GITHUB_CONTENTS_URL, "RoyaleAPI asset list", {
+      "User-Agent": "quincybotV2",
+    }).catch((err) => {
+      console.error(
+        "Clash Royale GitHub asset sync failed:",
+        err?.message || err,
+      );
+      return [];
+    }),
+  ]);
+
+  const app = global.bot?.application;
   const fileMap = new Map();
   if (Array.isArray(repoFiles)) {
     for (const file of repoFiles) {
@@ -1117,19 +1109,14 @@ async function syncClashRoyaleCards(sqlite, existingEmojis) {
   `);
 
   let createdEmojis = 0;
-  const slugify = (name) =>
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
 
   for (const card of allEntries) {
     const name = String(card.name || "").trim();
     if (!name) continue;
 
-    const slug = slugify(name);
-    const rarity = card.rarity || null;
-    const elixir = toNullableInt(card.elixirCost);
+    const slug = String(card.key || "").toLowerCase();
+    const rarity = String(card.rarity || "").toUpperCase();
+    const elixir = card.elixir != null ? Number(card.elixir) : null;
 
     // Helper to ensure emoji and return markdown
     const getEmoji = async (type, filename) => {
@@ -1152,14 +1139,19 @@ async function syncClashRoyaleCards(sqlite, existingEmojis) {
     };
 
     const cardEmojiMd = await getEmoji("card", `${slug}.png`);
-    const heroEmojiMd = await getEmoji("hero", `${slug}-hero.png`);
+    let heroEmojiMd = await getEmoji("hero", `${slug}-hero.png`);
     const evoEmojiMd = await getEmoji("evo", `${slug}-ev1.png`);
+
+    // Champions are counted as heroes too; fallback to base emoji if -hero is missing
+    if (rarity === "CHAMPION" && !heroEmojiMd) {
+      heroEmojiMd = cardEmojiMd;
+    }
 
     upsertCR.run(name, cardEmojiMd, heroEmojiMd, evoEmojiMd, rarity, elixir);
   }
 
   console.log(
-    `${colorSyncLabel("Clash Royale sync complete:")} ${colorMetric(allEntries.length)} cards/items processed, ${colorMetric(createdEmojis, "yellow")} emojis created.`,
+    `${colorSyncLabel("Clash Royale sync complete:")} ${colorMetric(allEntries.length)} cards processed, ${colorMetric(createdEmojis, "yellow")} emojis created.`,
   );
 }
 
@@ -1175,7 +1167,9 @@ function scheduleDailyAtZeroUTC(task) {
 
   setTimeout(async () => {
     try {
-      console.log(`${colors.bold.blue("[scheduler]")} Running scheduled daily sync...`);
+      console.log(
+        `${colors.bold.blue("[scheduler]")} Running scheduled daily sync...`,
+      );
       await task();
     } catch (err) {
       console.error("[scheduler] Daily sync task failed:", err);
