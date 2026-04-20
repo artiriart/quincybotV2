@@ -1098,14 +1098,15 @@ async function syncClashRoyaleCards(sqlite, existingEmojis) {
   }
 
   const upsertCR = sqlite.prepare(`
-    INSERT INTO clash_royale_cards (name, card_emoji, hero_emoji, evo_emoji, rarity, elixir_cost)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO clash_royale_cards (name, card_emoji, hero_emoji, evo_emoji, rarity, elixir_cost, card_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       card_emoji = COALESCE(excluded.card_emoji, clash_royale_cards.card_emoji),
       hero_emoji = COALESCE(excluded.hero_emoji, clash_royale_cards.hero_emoji),
       evo_emoji = COALESCE(excluded.evo_emoji, clash_royale_cards.evo_emoji),
       rarity = excluded.rarity,
-      elixir_cost = excluded.elixir_cost
+      elixir_cost = excluded.elixir_cost,
+      card_id = excluded.card_id
   `);
 
   let createdEmojis = 0;
@@ -1117,6 +1118,7 @@ async function syncClashRoyaleCards(sqlite, existingEmojis) {
     const slug = String(card.key || "").toLowerCase();
     const rarity = String(card.rarity || "").toUpperCase();
     const elixir = card.elixir != null ? Number(card.elixir) : null;
+    const cardId = Number.isFinite(Number(card.id)) ? Number(card.id) : null;
 
     // Helper to ensure emoji and return markdown
     const getEmoji = async (type, filename) => {
@@ -1147,7 +1149,15 @@ async function syncClashRoyaleCards(sqlite, existingEmojis) {
       heroEmojiMd = cardEmojiMd;
     }
 
-    upsertCR.run(name, cardEmojiMd, heroEmojiMd, evoEmojiMd, rarity, elixir);
+    upsertCR.run(
+      name,
+      cardEmojiMd,
+      heroEmojiMd,
+      evoEmojiMd,
+      rarity,
+      elixir,
+      cardId,
+    );
   }
 
   console.log(

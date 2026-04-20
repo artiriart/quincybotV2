@@ -5,3 +5,4 @@ package-lock.json
 functions/karutaMysqlSync.js
 database.sqlite*
 AI_ASSISTANT_GUIDE.txt
+.codex
