@@ -528,8 +528,9 @@ module.exports = {
         ),
       );
       section.setThumbnailAccessory((thumb) => {
+        const isNumeric = /^\d+$/.test(String(item.emoji_id || ""));
         thumb.setURL(
-          item.emoji_id
+          isNumeric
             ? `https://cdn.discordapp.com/emojis/${item.emoji_id}.webp`
             : "https://cdn.discordapp.com/embed/avatars/0.png",
         );

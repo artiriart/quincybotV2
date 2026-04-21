@@ -46,7 +46,8 @@ function getRaidTicketEmojiUrl() {
     ["Raid Ticket", "%raid%ticket%", "Raid Ticket"],
   )?.[0];
   const emojiId = String(ticketRow?.emoji_id || "").trim();
-  if (!emojiId) return null;
+  const isNumeric = /^\d+$/.test(emojiId);
+  if (!isNumeric) return null;
   return `https://cdn.discordapp.com/emojis/${emojiId}.webp`;
 }
 
@@ -269,12 +270,18 @@ async function handleSwsMessage(message, oldMessage, settings) {
     const enabled = settings.getUserToggle(user.id, "sws_gem_reminder", true);
     if (!enabled) return;
 
-    const match = message.content.match(/>\s*(.*?)\s*broke$/);
-    const gem = match?.[1];
+    const content = String(message.content || "");
+    const lastGreater = content.lastIndexOf(">");
+    if (lastGreater === -1) return;
+
+    let gem = content.slice(lastGreater + 1).replace(/\s*broke\s*$/, "").trim();
+    if (gem.toLowerCase().startsWith("your ")) {
+      gem = gem.slice(5).trim();
+    }
     if (!gem) return;
 
     const gemId = global.db.safeQuery(
-      `SELECT id FROM sws_items WHERE name = ? LIMIT 1`,
+      `SELECT id FROM sws_items WHERE LOWER(name) = LOWER(?) LIMIT 1`,
       [gem],
     )?.[0]?.id;
 
@@ -282,9 +289,9 @@ async function handleSwsMessage(message, oldMessage, settings) {
       .setColor("Red")
       .setAuthor({
         name: `${gem} broke`,
-        iconURL: user.avatarURL() || undefined,
+        iconURL: user.displayAvatarURL() || undefined,
       })
-      .setDescription(gemId ? `+use ${gemId}` : "+use <gem-id>");
+      .setDescription(gemId ? `+use ${gemId}` : `+use <id> (Search with /7w7 item ${gem})`);
 
     await message.reply({
       embeds: [embed],
@@ -406,7 +413,8 @@ async function handleSwsMessage(message, oldMessage, settings) {
     for (const item of message?.embeds?.[0]?.description?.split("\n") || []) {
       const itemId = Number.parseInt(item.split("`")[1]?.trim(), 10);
       const itemName = item.split("-").at(-1)?.trim();
-      const emojiId = item.split(":").at(-1)?.split(">")[0]?.trim();
+      const emojiMatch = item.match(/<a?:.+?:(\d+)>/);
+      const emojiId = emojiMatch ? emojiMatch[1] : null;
       if (!itemName || !Number.isFinite(itemId)) continue;
 
       global.db.safeQuery(
@@ -426,9 +434,9 @@ async function handleSwsMessage(message, oldMessage, settings) {
       .filter((o) => o.startsWith("-"))) {
       const itemName = offer.split("**")[1]?.trim();
       const itemMarket = offer.split("||")[1]?.trim();
-      const emojiId = offer?.split("||")[0]?.includes(">")
-        ? offer.split(":").at(-1)?.split(">")[0]?.trim()
-        : null;
+      const parts = offer.split("||")[0];
+      const emojiMatch = parts.match(/<a?:.+?:(\d+)>/);
+      const emojiId = emojiMatch ? emojiMatch[1] : null;
 
       if (!itemName || !itemMarket) continue;
 
