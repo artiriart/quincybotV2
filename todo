@@ -4,10 +4,12 @@
 - 7w7:
     - implement: raid guide via reacts on raid menus
     - test: ticket refill notifier + setting on x tickets
+    - implement: tick react like dank Alert for catching CD
 
 - anigame:
     - test: cl/f reminder & fix claim
     - implement: raidlist
+    - implement: index market via .mk
 
 - karuta:
     - test: visit reminders
@@ -23,15 +25,16 @@
     - implement: crate opening helper / extractor
     - implement: index market via ci for raidlist
     - test: event shard extractor
-    - fix: claim, initial command != slash command
+    - fix: claim, initial command != button interaction
 
 - dank:
     - fix: weekly bundle box reminders
-    - fix: do sync daily aka make it sync, not one time thing (sync = check which combinations not in table, fetch simulator if needed). also startup sync is ran daily too
+    - fix: do weekly sync for fishing simulator if new fish are there
+    - fix: delete fish_settings, dank_stats_option_meta, sqlite_sequence, lab tables,  table from schema and sqlite
 
 - utility:
     - implement: list all reminders command
-    - implement: upload Quincy db periodically to discord via gzip'ing tables (json) as backup
+    - implement: upload Quincy db periodically to discord via gzip'ing tables (json/yaml) as backup
 
 - clash royale:
     - betroyale:
