@@ -170,6 +170,7 @@ const schema = {
   },
   anigame_cards: {
     name: "TEXT PRIMARY KEY",
+    series: "TEXT DEFAULT NULL",
     talent: "TEXT DEFAULT NULL",
     element: "TEXT DEFAULT NULL",
     card_url: "TEXT DEFAULT NULL",
@@ -177,9 +178,10 @@ const schema = {
       'TEXT DEFAULT \'{"ATK": "80", "HP": "80", "DEF": "80", "SPD": "80"}\'',
   },
   anigame_market_prices: {
-    name: "TEXT PRIMARY KEY",
+    name: "TEXT NOT NULL",
     market_average: "INTEGER DEFAULT 0",
     rarity: "TEXT DEFAULT NULL",
+    _constraint: "PRIMARY KEY (name, rarity)",
   },
   anigame_reminders: {
     user_id: "TEXT NOT NULL",
@@ -270,14 +272,33 @@ const schema = {
     toggle: "BOOLEAN DEFAULT 1",
     _constraint: "PRIMARY KEY (user_id, type)",
   },
+  lab_elements: {
+    element_key: "TEXT NOT NULL",
+    name: "TEXT NOT NULL",
+    first_discoverer_id: "TEXT DEFAULT NULL",
+    created_at: "TEXT DEFAULT CURRENT_TIMESTAMP",
+    _constraint: "PRIMARY KEY (element_key)",
+  },
+  lab_element_combinations: {
+    input_a_key: "TEXT NOT NULL",
+    input_b_key: "TEXT NOT NULL",
+    result_key: "TEXT NOT NULL",
+    creator_user_id: "TEXT DEFAULT NULL",
+    created_at: "TEXT DEFAULT CURRENT_TIMESTAMP",
+    _constraint: "PRIMARY KEY (input_a_key, input_b_key)",
+  },
+  lab_user_elements: {
+    user_id: "TEXT NOT NULL",
+    element_key: "TEXT NOT NULL",
+    acquired_at: "TEXT DEFAULT CURRENT_TIMESTAMP",
+    _constraint: "PRIMARY KEY (user_id, element_key)",
+  },
 };
 
 const DANK_FISH_SETTINGS_STATE_TYPE = "dank_fish_settings";
 const LEGACY_TABLES_TO_DROP = [
   "izzi_market_prices",
   "dank_fish_settings",
-  "lab_user_elements",
-  "lab_elements",
 ];
 
 // ---------------- SCHEMA SYNC ----------------

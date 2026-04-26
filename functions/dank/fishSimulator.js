@@ -4,6 +4,8 @@ const HARDCODED_SKILLS = {
 };
 
 const DANK_FISH_SETTINGS_STATE_TYPE = "dank_fish_settings";
+const DANK_FISH_MYTHICAL_SYNC_STATE_TYPE = "dank_fish_mythical_sync_meta";
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const DEFAULT_LOCATIONS = [
   "shallow-ocean",
@@ -78,6 +80,39 @@ function normalizeFishSettingsState(raw, userId = null) {
     updated_at:
       parsed?.updated_at == null ? null : String(parsed.updated_at).trim() || null,
   };
+}
+
+function parseMythicalSyncState(raw) {
+  let parsed = raw;
+  try {
+    if (typeof raw === "string") {
+      parsed = JSON.parse(raw);
+    }
+  } catch {
+    parsed = {};
+  }
+
+  const lastSyncAtMs = Number(parsed?.last_sync_at_ms || 0);
+  return {
+    last_sync_at_ms:
+      Number.isFinite(lastSyncAtMs) && lastSyncAtMs > 0
+        ? Math.trunc(lastSyncAtMs)
+        : 0,
+  };
+}
+
+function getMythicalSyncState() {
+  const raw = global.db.getState(DANK_FISH_MYTHICAL_SYNC_STATE_TYPE);
+  return parseMythicalSyncState(raw);
+}
+
+function saveMythicalSyncState(lastSyncAtMs) {
+  global.db.upsertState(
+    DANK_FISH_MYTHICAL_SYNC_STATE_TYPE,
+    JSON.stringify({
+      last_sync_at_ms: Math.trunc(Number(lastSyncAtMs) || Date.now()),
+    }),
+  );
 }
 
 async function getOrCreateFishSettings(userId) {
@@ -478,10 +513,20 @@ function groupAllPossibilitiesByLocation(rows, entityMap, targetName, targetEmoj
 
 async function ensureStartupMythicalChancesIndex({ onlyIfMissing = true } = {}) {
   const now = new Date();
+  const nowMs = now.getTime();
   const currentHour = now.getUTCHours();
   const requiredTuesdayStates = [0, 1];
   const requiredBaits = ["none", "lucky-bait"];
+  const syncState = getMythicalSyncState();
 
+  if (
+    syncState.last_sync_at_ms > 0 &&
+    nowMs - syncState.last_sync_at_ms < ONE_WEEK_MS
+  ) {
+    return;
+  }
+
+  let existingCount = 0;
   if (onlyIfMissing) {
     const [row] = await global.db.safeQuery(
       `SELECT COUNT(*) AS count
@@ -489,7 +534,10 @@ async function ensureStartupMythicalChancesIndex({ onlyIfMissing = true } = {}) 
       [],
       [],
     );
-    if (Number(row?.count || 0) > 0) {
+    existingCount = Number(row?.count || 0);
+    if (existingCount > 0 && syncState.last_sync_at_ms <= 0) {
+      // Existing legacy cache with no saved timestamp: start the weekly timer now.
+      saveMythicalSyncState(nowMs);
       return;
     }
   }
@@ -524,6 +572,8 @@ async function ensureStartupMythicalChancesIndex({ onlyIfMissing = true } = {}) 
       }
     }
   }
+
+  saveMythicalSyncState(nowMs);
 }
 
 module.exports = {

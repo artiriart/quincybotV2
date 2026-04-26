@@ -9,25 +9,21 @@
     - test: ticket refill notifier + setting on x tickets
 
 - anigame:
-    - test: cl/f reminder & fix claim
-    - implement: raidlist
-    - implement: index market via .mk
+    - fix: cl/f reminder & fix claim
+    - implement: grab all event series and add to array
 
 - karuta:
     - test: visit reminders
 
 - lab:
-    - implement:
-        - reconstruct whole module as before (copycat neal.fun infinitecraft)
-        - Component V2 & better menus & home UI with all features
-        - keep older logic in terms of core game logic
+    - refractor: add emojis to menus e.g. feather, ✨ instead of "First Discovery"
 
 - izzi:
     - implement: crate opening helper / extractor
+    - implement: better talent lookup + emoji ID inserter for talents from ci
 
 - dank:
     - fix: weekly bundle box reminders, if mel doesnt add himself
-    - fix: do weekly sync for fishing simulator if new fish are there
 
 - utility:
     - implement: upload Quincy db periodically to discord via gzip'ing tables (json/yaml) as backup

@@ -3,6 +3,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ContainerBuilder,
+  EmbedBuilder,
   MessageFlags,
   ModalBuilder,
   SectionBuilder,
@@ -19,11 +20,17 @@ const {
   buildClaimMenuPayload,
   handleClaimMenuButton,
 } = require("../functions/cardClaimPanel");
+const { parseCompactNumber } = require("../utils/numberParser");
 
 const ROUTE_PREFIX = "anigamerem";
 const ITEMS_PER_PAGE = 5;
 const CARD_NAME_INPUT_ID = "card_name";
 const RARITY_INPUT_ID = "rarity";
+const DEFAULT_RAIDLIST_COST = 200_000;
+const ANIGAME_RAIDLIST_RARITIES = "r,sr,ur";
+const ANIGAME_RAIDLIST_PREFIX = `.rd lobbies -r ${ANIGAME_RAIDLIST_RARITIES} -n `;
+const RAIDLIST_DESCRIPTION_LIMIT = 4096;
+const ANIGAME_EVENT_ONLY_SERIES = ["Dandadan"];
 
 const REMINDER_TYPES = {
   fragment_shop: {
@@ -183,6 +190,36 @@ function toRarityValue(raw) {
   ]);
 
   return valid.has(normalized) ? normalized : null;
+}
+
+function normalizeRaidlistCost(raw) {
+  if (raw == null) return DEFAULT_RAIDLIST_COST;
+  const parsed = parseCompactNumber(raw);
+  if (parsed == null || parsed < 0) return null;
+  return parsed;
+}
+
+function buildRaidlistDescription(prefix, names) {
+  let description = prefix;
+  let included = 0;
+
+  for (const rawName of names || []) {
+    const name = String(rawName || "").trim();
+    if (!name) continue;
+
+    const candidate =
+      included === 0 ? `${description}${name}` : `${description},${name}`;
+    if (candidate.length > RAIDLIST_DESCRIPTION_LIMIT) break;
+
+    description = candidate;
+    included += 1;
+  }
+
+  return { description, included };
+}
+
+function formatCoins(value) {
+  return Number(value || 0).toLocaleString("en-US");
 }
 
 function resolveCardByLooseName(query) {
@@ -654,13 +691,13 @@ module.exports = {
     )
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("raids")
-        .setDescription("Shows your anigame profile")
+        .setName("raidlist")
+        .setDescription("Generate an Anigame raidlist command by minimum cost")
         .addStringOption((option) =>
           option
-            .setName("price")
-            .setDescription("min. Card Price")
-            .setRequired(true),
+            .setName("cost")
+            .setDescription("Minimum card price. Default: 200k")
+            .setRequired(false),
         )
         .addStringOption((option) =>
           option
@@ -788,6 +825,104 @@ module.exports = {
 
     if (!subcommandGroup && subcommand === "claims") {
       await interaction.reply(buildClaimMenuPayload(interaction.user.id, "anigame"));
+      return;
+    }
+
+    if (!subcommandGroup && subcommand === "raidlist") {
+      const minCost = normalizeRaidlistCost(
+        interaction.options.getString("cost", false),
+      );
+      const rarity =
+        toRarityValue(interaction.options.getString("rarity", false)) ||
+        "super_rare";
+
+      if (minCost == null) {
+        await interaction.reply({
+          content: "Invalid cost. Use a number like `200000`, `200k`, or `1.5m`.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const indexedPriceCount = Number(
+        global.db.safeQuery(
+          `
+          SELECT COUNT(*) AS count
+          FROM anigame_market_prices
+          WHERE COALESCE(market_average, 0) > 0
+            AND LOWER(COALESCE(rarity, '')) = LOWER(?)
+          `,
+          [rarity],
+          [],
+        )?.[0]?.count || 0,
+      );
+
+      if (indexedPriceCount <= 0) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Raidlist Command")
+              .setDescription(
+                `No Anigame market prices are indexed yet for ${toRarityLabel(rarity)}.`,
+              ),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const rows = global.db.safeQuery(
+        `
+        SELECT p.name, p.market_average, p.rarity
+        FROM anigame_market_prices p
+        LEFT JOIN anigame_cards c
+          ON LOWER(c.name) = LOWER(p.name)
+        WHERE LOWER(COALESCE(p.rarity, '')) = LOWER(?)
+          AND COALESCE(p.market_average, 0) >= ?
+          AND LOWER(COALESCE(c.series, '')) NOT IN (${ANIGAME_EVENT_ONLY_SERIES.map(() => "?").join(",")})
+        ORDER BY p.market_average DESC, LOWER(p.name) ASC
+        `,
+        [
+          rarity,
+          minCost,
+          ...ANIGAME_EVENT_ONLY_SERIES.map((series) => series.toLowerCase()),
+        ],
+        [],
+      );
+
+      if (!rows.length) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Raidlist Command")
+              .setDescription(
+                `No Anigame cards were found at or above ⏣ ${formatCoins(minCost)} for ${toRarityLabel(rarity)}.`,
+              ),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const { description, included } = buildRaidlistDescription(
+        ANIGAME_RAIDLIST_PREFIX,
+        rows.map((row) => row.name),
+      );
+
+      const embed = new EmbedBuilder()
+        .setTitle("Raidlist Command")
+        .setDescription(description);
+
+      if (included < rows.length) {
+        embed.setFooter({
+          text: `Showing ${included} of ${rows.length} cards for ${toRarityLabel(rarity)} due to Discord's 4096 character limit.`,
+        });
+      }
+
+      await interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
 

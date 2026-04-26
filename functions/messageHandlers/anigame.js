@@ -19,6 +19,119 @@ const anigame_emoji_map = {
   "<:super:1068421019645247550><:rare:1068421018374377535>": "Super Rare",
   "<a:ultra:1068416715890892861><a:rare:1068416713592414268>": "Ultra Rare",
 };
+const ANIGAME_MARKET_RARITY_MAP = {
+  "<:common:1068421015509684224>": "common",
+  "<:not:1068421022606426182><:common:1068421020739981312>": "uncommon",
+  "<:rare:1068421016893800469>": "rare",
+  "<:super:1068421019645247550><:rare:1068421018374377535>": "super_rare",
+  "<a:ultra:1068416715890892861><a:rare:1068416713592414268>": "ultra_rare",
+};
+
+function collectComponentTexts(node, output = []) {
+  if (!node) return output;
+  if (Array.isArray(node)) {
+    for (const item of node) collectComponentTexts(item, output);
+    return output;
+  }
+  if (typeof node?.content === "string" && node.content.trim()) {
+    output.push(String(node.content));
+  }
+  if (Array.isArray(node?.components)) {
+    collectComponentTexts(node.components, output);
+  }
+  if (node?.accessory) {
+    collectComponentTexts(node.accessory, output);
+  }
+  return output;
+}
+
+function normalizeAnigameMarketName(rawName) {
+  const text = String(rawName || "").trim();
+  if (!text) return "";
+  const withoutSuffix = text.replace(/\s+\[(?:Evo|Awaken)[^\]]*\].*$/i, "").trim();
+  return withoutSuffix || text;
+}
+
+function parseAnigameMarketEntry(content) {
+  const lines = String(content || "")
+    .split("\n")
+    .map((line) => String(line || "").replace(/\u200b/g, "").trim())
+    .filter(Boolean);
+  if (lines.length < 2) return null;
+
+  const firstLine = lines[0];
+  const secondLine = lines[1];
+  const priceMatch = firstLine.match(/^\*\*([\d,]+)\s+Gold\b/i);
+  if (!priceMatch) return null;
+
+  const price = Number.parseInt(priceMatch[1].replaceAll(",", ""), 10);
+  if (!Number.isFinite(price) || price < 0) return null;
+
+  const namePart = firstLine.split("|")?.[1] || "";
+  const name = normalizeAnigameMarketName(namePart);
+  if (!name) return null;
+
+  const raritySegment = String(secondLine.split("|")?.[0] || "").trim();
+  const rarity = Object.entries(ANIGAME_MARKET_RARITY_MAP).find(([emoji]) =>
+    raritySegment.includes(emoji),
+  )?.[1];
+  if (!rarity) return null;
+
+  return { name, price, rarity };
+}
+
+function isAnigameGlobalMarketPageOne(message) {
+  const texts = collectComponentTexts(message?.components || []);
+  const joined = texts.join("\n");
+  return (
+    /global market/i.test(joined) &&
+    /page\s*1\s*\/\s*\d+/i.test(joined)
+  );
+}
+
+function indexAnigameMarketPage(message) {
+  if (!isAnigameGlobalMarketPageOne(message)) return 0;
+
+  const texts = collectComponentTexts(message?.components || []);
+  const bestByCardRarity = new Map();
+
+  for (const text of texts) {
+    const parsed = parseAnigameMarketEntry(text);
+    if (!parsed) continue;
+    const key = `${parsed.name.toLowerCase()}\u0000${parsed.rarity}`;
+    const current = bestByCardRarity.get(key);
+    if (!current || parsed.price < current.price) {
+      bestByCardRarity.set(key, parsed);
+    }
+  }
+
+  for (const row of bestByCardRarity.values()) {
+    const canonicalName =
+      global.db.safeQuery(
+        `
+        SELECT name
+        FROM anigame_cards
+        WHERE LOWER(name) = LOWER(?)
+        LIMIT 1
+        `,
+        [row.name],
+        [],
+      )?.[0]?.name || row.name;
+
+    global.db.safeQuery(
+      `
+      INSERT INTO anigame_market_prices (name, market_average, rarity)
+      VALUES (?, ?, ?)
+      ON CONFLICT(name, rarity) DO UPDATE SET
+        market_average = excluded.market_average
+      `,
+      [canonicalName, row.price, row.rarity],
+      null,
+    );
+  }
+
+  return bestByCardRarity.size;
+}
 
 function parseAnigameBaseStats(rawStats) {
   try {
@@ -227,6 +340,8 @@ async function notifyAnigameShopReminders(message, shopType) {
 }
 
 async function handleAnigameMessage(message, oldMessage, settings) {
+  indexAnigameMarketPage(message);
+
   if (message?.embeds?.[0]?.title === "Raid Lobbies" && !oldMessage) {
     const refAuthor = await resolveReferencedAuthor(message);
     const threshold = settings.getUserNumberSetting(

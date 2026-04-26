@@ -1017,6 +1017,7 @@ async function syncAnigameCards(sqlite) {
   };
 
   const nameIdx = getIndex("card_name", "name");
+  const seriesIdx = getIndex("card_series", "series", "anime", "show");
   const elementIdx = getIndex("card_type", "element");
   const talentIdx = getIndex("talent_normal", "talent", "card_talent");
   const hpIdx = getIndex("card_hp", "hp");
@@ -1044,9 +1045,10 @@ async function syncAnigameCards(sqlite) {
   }
 
   const upsertCard = sqlite.prepare(`
-    INSERT INTO anigame_cards (name, talent, element, card_url, base_stats)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO anigame_cards (name, series, talent, element, card_url, base_stats)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
+      series = excluded.series,
       talent = excluded.talent,
       element = excluded.element,
       card_url = excluded.card_url,
@@ -1067,6 +1069,7 @@ async function syncAnigameCards(sqlite) {
 
     upsertCard.run(
       name,
+      seriesIdx === -1 ? null : String(row?.[seriesIdx] || "").trim() || null,
       talentIdx === -1 ? null : String(row?.[talentIdx] || "").trim() || null,
       elementIdx === -1 ? null : String(row?.[elementIdx] || "").trim() || null,
       cardUrlIdx === -1
