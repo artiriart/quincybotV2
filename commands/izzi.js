@@ -1,86 +1,48 @@
 const {
-  ButtonBuilder,
-  ButtonStyle,
-  ContainerBuilder,
+  EmbedBuilder,
   MessageFlags,
-  SectionBuilder,
-  SeparatorBuilder,
   SlashCommandBuilder,
-  TextDisplayBuilder,
 } = require("discord.js");
 const { buttonHandlers } = require("../functions/interactions/button");
+const {
+  CLAIM_ROUTE_PREFIX,
+  buildClaimMenuPayload,
+  handleClaimMenuButton,
+} = require("../functions/cardClaimPanel");
+const { parseCompactNumber } = require("../utils/numberParser");
 
-const CLAIM_ROUTE_PREFIX = "cardclaims";
+const DEFAULT_RAIDLIST_COST = 200_000;
+const RAIDLIST_DESCRIPTION_PREFIX = "iz rd lobbies -d i -n ";
+const RAIDLIST_DESCRIPTION_LIMIT = 4096;
 
-function getClaimBotMeta(rawBot) {
-  const botKey = String(rawBot || "").trim().toLowerCase();
-  if (botKey === "izzi") {
-    return { key: "izzi", dbName: "Izzi", switchLabel: "Anigame", switchTo: "anigame" };
-  }
-  return { key: "anigame", dbName: "Anigame", switchLabel: "Izzi", switchTo: "izzi" };
+function formatCoins(value) {
+  return Number(value || 0).toLocaleString("en-US");
 }
 
-function buildClaimRecordsText(userId, botKey) {
-  const meta = getClaimBotMeta(botKey);
-  const rows = global.db.safeQuery(
-    `
-    SELECT rarity, SUM(amount) AS amount
-    FROM card_stats
-    WHERE user_id = ? AND bot_name = ?
-    GROUP BY rarity
-    ORDER BY amount DESC, rarity ASC
-    `,
-    [userId, meta.dbName],
-    [],
-  );
-
-  if (!rows.length) {
-    return "-# No claim stats tracked yet.";
-  }
-
-  return rows
-    .map((row) => `* **${String(row?.rarity || "Unknown")}** - \`${Number(row?.amount || 0).toLocaleString()}\``)
-    .join("\n");
+function normalizeRaidlistCost(raw) {
+  if (raw == null) return DEFAULT_RAIDLIST_COST;
+  const parsed = parseCompactNumber(raw);
+  if (parsed == null || parsed < 0) return null;
+  return parsed;
 }
 
-function buildClaimMenuPayload(userId, botKey) {
-  const meta = getClaimBotMeta(botKey);
-  const container = new ContainerBuilder()
-    .addSectionComponents(
-      new SectionBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent("### Claimed Cards"))
-        .setButtonAccessory(
-          new ButtonBuilder()
-            .setCustomId(`${CLAIM_ROUTE_PREFIX}:switch:${userId}:${meta.switchTo}`)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(meta.switchLabel),
-        ),
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(buildClaimRecordsText(userId, meta.key)),
-    );
+function buildRaidlistDescription(names) {
+  let description = RAIDLIST_DESCRIPTION_PREFIX;
+  let included = 0;
 
-  return {
-    content: "",
-    components: [container],
-    flags: MessageFlags.IsComponentsV2,
-  };
-}
+  for (const rawName of names || []) {
+    const name = String(rawName || "").trim();
+    if (!name) continue;
 
-async function handleClaimMenuButton(interaction) {
-  const [route, action, ownerId, botKey] = String(interaction.customId || "").split(":");
-  if (route !== CLAIM_ROUTE_PREFIX || action !== "switch") return;
+    const candidate =
+      included === 0 ? `${description}${name}` : `${description},${name}`;
+    if (candidate.length > RAIDLIST_DESCRIPTION_LIMIT) break;
 
-  if (!ownerId || interaction.user.id !== ownerId) {
-    await interaction.reply({
-      content: "Only the command user can switch this menu.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
+    description = candidate;
+    included += 1;
   }
 
-  await interaction.update(buildClaimMenuPayload(ownerId, botKey));
+  return { description, included };
 }
 
 module.exports = {
@@ -93,25 +55,13 @@ module.exports = {
     )
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("raids")
-        .setDescription("Command to filter best raids")
+        .setName("raidlist")
+        .setDescription("Generate an Izzi raidlist command by minimum cost")
         .addStringOption((option) =>
           option
-            .setName("price")
-            .setDescription("min. Card Price")
-            .setRequired(true),
-        )
-        .addStringOption((option) =>
-          option
-            .setName("rarity")
-            .setDescription("Rarity which the price is based on. Default: Immortal")
-            .setRequired(false)
-            .addChoices(
-              { name: "Immortal", value: "immortal" },
-              { name: "Exclusive", value: "exclusive" },
-              { name: "Ultimate", value: "ultimate" },
-              { name: "Mythical", value: "mythical" },
-            ),
+            .setName("cost")
+            .setDescription("Minimum card price. Default: 200k")
+            .setRequired(false),
         ),
     ),
   async execute(interaction) {
@@ -120,6 +70,90 @@ module.exports = {
     const subcommand = interaction.options.getSubcommand(false);
     if (subcommand === "claims") {
       await interaction.reply(buildClaimMenuPayload(interaction.user.id, "izzi"));
+      return;
+    }
+
+    if (subcommand === "raidlist") {
+      const minCost = normalizeRaidlistCost(
+        interaction.options.getString("cost", false),
+      );
+
+      if (minCost == null) {
+        await interaction.reply({
+          content: "Invalid cost. Use a number like `200000`, `200k`, or `1.5m`.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const indexedPriceCount = Number(
+        global.db.safeQuery(
+          `
+          SELECT COUNT(*) AS count
+          FROM izzi_cards
+          WHERE COALESCE(average_price, 0) > 0
+          `,
+          [],
+          [],
+        )?.[0]?.count || 0,
+      );
+
+      if (indexedPriceCount <= 0) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Raidlist Command")
+              .setDescription("No Izzi market prices are indexed yet."),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const rows = global.db.safeQuery(
+        `
+        SELECT c.name, c.average_price
+        FROM izzi_cards c
+        WHERE c.event = 0
+          AND COALESCE(c.average_price, 0) >= ?
+        ORDER BY c.average_price DESC, LOWER(c.name) ASC
+        `,
+        [minCost],
+        [],
+      );
+
+      if (!rows.length) {
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Raidlist Command")
+              .setDescription(
+                `No non-event Izzi cards were found at or above ⏣ ${formatCoins(minCost)}.`,
+              ),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const { description, included } = buildRaidlistDescription(
+        rows.map((row) => row.name),
+      );
+
+      const embed = new EmbedBuilder()
+        .setTitle("Raidlist Command")
+        .setDescription(description);
+
+      if (included < rows.length) {
+        embed.setFooter({
+          text: `Showing ${included} of ${rows.length} cards due to Discord's 4096 character limit.`,
+        });
+      }
+
+      await interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
 

@@ -57,15 +57,6 @@ const schema = {
     updated_at: "TEXT DEFAULT CURRENT_TIMESTAMP",
     _constraint: "PRIMARY KEY (entity_type, entity_id)",
   },
-  dank_fish_settings: {
-    user_id: "TEXT NOT NULL",
-    target_type: "TEXT DEFAULT NULL",
-    target_id: "TEXT DEFAULT NULL",
-    is_hunting: "BOOLEAN DEFAULT 0",
-    lucky_bait_enabled: "BOOLEAN DEFAULT 0",
-    updated_at: "TEXT DEFAULT CURRENT_TIMESTAMP",
-    _constraint: "PRIMARY KEY (user_id)",
-  },
   dank_fish_mythical_chances: {
     creature_id: "TEXT NOT NULL",
     location_id: "TEXT NOT NULL",
@@ -160,12 +151,7 @@ const schema = {
     base_stats:
       'TEXT DEFAULT \'{"ATK": "80", "HP": "80", "DEF": "80", "SPD": "80", "ARM": "80"}\'',
     darkzone: "BOOLEAN DEFAULT 0",
-    _constraint: "PRIMARY KEY (name)",
-  },
-  izzi_market_prices: {
-    name: "TEXT NOT NULL",
-    market_average: "INTEGER DEFAULT 0",
-    rarity: "TEXT DEFAULT NULL",
+    average_price: "INTEGER DEFAULT 0",
     _constraint: "PRIMARY KEY (name)",
   },
   izzi_talents: {
@@ -284,18 +270,15 @@ const schema = {
     toggle: "BOOLEAN DEFAULT 1",
     _constraint: "PRIMARY KEY (user_id, type)",
   },
-  lab_user_elements: {
-    user_id: "TEXT NOT NULL",
-    unlocked_element: "TEXT DEFAULT NULL",
-    _constraint: "PRIMARY KEY (user_id)",
-  },
-  // ===== MINIGAME DATA =====
-  lab_elements: {
-    name: "TEXT PRIMARY KEY",
-    combination: "TEXT DEFAULT NULL",
-    discoverer_id: "TEXT DEFAULT NULL",
-  },
 };
+
+const DANK_FISH_SETTINGS_STATE_TYPE = "dank_fish_settings";
+const LEGACY_TABLES_TO_DROP = [
+  "izzi_market_prices",
+  "dank_fish_settings",
+  "lab_user_elements",
+  "lab_elements",
+];
 
 // ---------------- SCHEMA SYNC ----------------
 
@@ -424,8 +407,9 @@ function syncTables() {
   for (const [table, definition] of Object.entries(schema)) {
     syncTable(table, definition);
   }
+}
 
-  // Drop tables not in schema
+function dropOrphanTables() {
   const tables = db
     .prepare(
       `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
@@ -437,6 +421,56 @@ function syncTables() {
     if (!schema[table]) {
       db.prepare(`DROP TABLE ${table}`).run();
     }
+  }
+}
+
+function migrateLegacyFishSettingsToStates() {
+  if (!tableExists("dank_fish_settings")) return 0;
+
+  const rows = safeQuery(`SELECT * FROM dank_fish_settings`, [], []);
+  let migrated = 0;
+
+  for (const row of rows) {
+    const userId = String(row?.user_id || "").trim();
+    if (!userId) continue;
+
+    upsertState(
+      DANK_FISH_SETTINGS_STATE_TYPE,
+      JSON.stringify({
+        target_type: row?.target_type == null ? null : String(row.target_type),
+        target_id: row?.target_id == null ? null : String(row.target_id),
+        is_hunting: Number(row?.is_hunting || 0) === 1 ? 1 : 0,
+        lucky_bait_enabled:
+          Number(row?.lucky_bait_enabled || 0) === 1 ? 1 : 0,
+        updated_at: row?.updated_at ? String(row.updated_at) : null,
+      }),
+      userId,
+      true,
+    );
+    migrated += 1;
+  }
+
+  if (migrated > 0) {
+    console.log(
+      `[dank] migrated ${migrated} legacy fish settings rows into states.`,
+    );
+  }
+
+  return migrated;
+}
+
+function cleanupLegacyTables() {
+  migrateLegacyFishSettingsToStates();
+
+  for (const table of LEGACY_TABLES_TO_DROP) {
+    if (!tableExists(table)) continue;
+    db.prepare(`DROP TABLE ${table}`).run();
+    console.log(`[db] dropped legacy table ${table}.`);
+  }
+
+  if (tableExists("sqlite_sequence")) {
+    safeQuery(`DELETE FROM sqlite_sequence`, [], null);
+    console.log("[db] cleared sqlite_sequence.");
   }
 }
 
@@ -830,6 +864,8 @@ function sweepNonPermanentStates() {
 function initDatabase() {
   syncTables();
   migrateKarutaSpacing();
+  cleanupLegacyTables();
+  dropOrphanTables();
   safeQuery(
     `CREATE INDEX IF NOT EXISTS idx_dank_fish_entities_type_name ON dank_fish_entities(entity_type, name)`,
   );

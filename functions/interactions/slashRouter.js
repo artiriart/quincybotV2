@@ -6,6 +6,7 @@ const {
   runInvite,
   runDice,
   runReminder,
+  runReminders,
   runSettings,
 } = require("./slashHandlers/misc");
 
@@ -17,6 +18,7 @@ const slashRoutes = new Map([
   ["invite", runInvite],
   ["dice", runDice],
   ["reminder", runReminder],
+  ["reminders", runReminders],
   ["settings", runSettings],
 ]);
 

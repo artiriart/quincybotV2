@@ -33,6 +33,11 @@ const SWS_REMINDER_TOGGLES = [
   { key: "sws_partner_reminder", label: "Partner Reminder" },
   { key: "sws_gem_reminder", label: "Gem Reminder" },
   {
+    key: "sws_catch_cooldown_tick",
+    label: "Catch Cooldown Tick",
+    defaultOn: true,
+  },
+  {
     key: "sws_no_patreon_raid_reminder",
     label: "No-Patreon Raid Reminder",
   },
@@ -205,6 +210,31 @@ function getToggleEmoji(enabled) {
     enabled ? "toggle-right" : "toggle-left",
   );
   return emoji || (enabled ? "▶" : "◀");
+}
+
+function parseEmojiValue(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+
+  const custom = text.match(/^<(a?):([a-zA-Z0-9_]+):(\d+)>$/);
+  if (custom) {
+    return {
+      id: custom[3],
+      name: custom[2],
+      animated: custom[1] === "a",
+    };
+  }
+
+  if (
+    text.length <= 32 &&
+    (/\p{Extended_Pictographic}/u.test(text) ||
+      /(?:\p{Regional_Indicator}){2}/u.test(text) ||
+      /[#*0-9]\uFE0F?\u20E3/u.test(text))
+  ) {
+    return { name: text };
+  }
+
+  return null;
 }
 
 function buildCategoryContainer(selected = null) {
@@ -616,6 +646,7 @@ const HELP_CONTENT = {
     "* `/dice` configurable dice roller",
     "* `/settings` toggles + notifier settings",
     "* `/reminder` custom reminder creation",
+    "* `/reminders` list and delete existing reminders",
   ].join("\n"),
   dank: [
     "### Dank",
@@ -722,6 +753,175 @@ function sanitizeReminderInformation(raw) {
   return safe || "Custom Reminder";
 }
 
+const REMINDERS_ROUTE_PREFIX = "reminders";
+const REMINDERS_PER_PAGE = 5;
+
+function parseReminderPayload(raw) {
+  if (!raw) return { command: "", information: "" };
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return {
+      command: String(parsed?.command || "").trim(),
+      information: String(parsed?.information || "").trim(),
+    };
+  } catch {
+    return { command: "", information: "" };
+  }
+}
+
+function buildRemindersCustomId(userId, action, page = 0, extra = "") {
+  const parts = [
+    REMINDERS_ROUTE_PREFIX,
+    String(action || "page"),
+    String(userId || ""),
+    String(Math.max(0, Number(page || 0))),
+  ];
+  if (extra !== "") parts.push(String(extra));
+  return parts.join(":");
+}
+
+function parseRemindersCustomId(customId) {
+  const [route, action, ownerId, pageRaw, extra] = String(customId || "").split(":");
+  if (route !== REMINDERS_ROUTE_PREFIX || !action || !ownerId) return null;
+  return {
+    action,
+    userId: String(ownerId),
+    page: Math.max(0, Number(pageRaw || 0)),
+    extra: String(extra || ""),
+  };
+}
+
+function listUserReminders(userId) {
+  return global.db.safeQuery(
+    `
+    SELECT type, information, end, dm, channel_id
+    FROM reminders
+    WHERE user_id = ?
+    ORDER BY end ASC, type ASC
+    `,
+    [userId],
+    [],
+  );
+}
+
+function formatReminderEndsAt(end) {
+  const endMs = Number(end || 0);
+  if (!Number.isFinite(endMs) || endMs <= 0) return "Unknown";
+  return `<t:${Math.floor(endMs / 1000)}:R>`;
+}
+
+function buildReminderSectionText(row) {
+  const type = String(row?.type || "Reminder").trim() || "Reminder";
+  const payload = parseReminderPayload(row?.information);
+  const information = payload.information || "Custom Reminder";
+  const command = payload.command || "-";
+  const eta = formatReminderEndsAt(row?.end);
+  const delivery =
+    Number(row?.dm) === 1
+      ? "DM"
+      : row?.channel_id
+        ? `<#${String(row.channel_id).trim()}>`
+        : "Unknown";
+
+  return `### ${type}\n-# ${information}\n-# Command: \`${command}\` | Ends: ${eta} | ${delivery}`;
+}
+
+function buildRemindersPayload(userId, requestedPage = 0) {
+  const rows = listUserReminders(userId);
+  const totalPages = Math.max(1, Math.ceil(rows.length / REMINDERS_PER_PAGE));
+  const page = Math.min(Math.max(0, Number(requestedPage || 0)), totalPages - 1);
+  const pagedRows = rows.slice(
+    page * REMINDERS_PER_PAGE,
+    (page + 1) * REMINDERS_PER_PAGE,
+  );
+  const trashEmoji = parseEmojiValue(global.db.getFeatherEmojiMarkdown("trash")) || {
+    name: "🗑️",
+  };
+  const leftEmoji = parseEmojiValue(global.db.getFeatherEmojiMarkdown("chevron-left")) || {
+    name: "◀️",
+  };
+  const rightEmoji = parseEmojiValue(global.db.getFeatherEmojiMarkdown("chevron-right")) || {
+    name: "▶️",
+  };
+
+  const container = new ContainerBuilder()
+    .addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent("## Reminders"),
+        )
+        .setButtonAccessory(
+          new ButtonBuilder()
+            .setCustomId(buildRemindersCustomId(userId, "delete_all", page))
+            .setStyle(ButtonStyle.Danger)
+            .setLabel("Delete All")
+            .setEmoji(trashEmoji),
+        ),
+    )
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+  if (!pagedRows.length) {
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent("-# No reminders found."),
+    );
+  } else {
+    for (let i = 0; i < pagedRows.length; i += 1) {
+      const absoluteIndex = page * REMINDERS_PER_PAGE + i;
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+              buildReminderSectionText(pagedRows[i]),
+            ),
+          )
+          .setButtonAccessory(
+            new ButtonBuilder()
+              .setCustomId(
+                buildRemindersCustomId(userId, "delete_one", page, absoluteIndex),
+              )
+              .setStyle(ButtonStyle.Secondary)
+              .setLabel("Delete")
+              .setEmoji(trashEmoji),
+          ),
+      );
+
+      if (i < pagedRows.length - 1) {
+        container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+      }
+    }
+  }
+
+  if (totalPages > 1) {
+    container
+      .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+      .addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(buildRemindersCustomId(userId, "page", page - 1))
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji(leftEmoji)
+            .setDisabled(page <= 0),
+          new ButtonBuilder()
+            .setCustomId(buildRemindersCustomId(userId, "page_label", page))
+            .setStyle(ButtonStyle.Secondary)
+            .setLabel(`${page + 1}/${totalPages}`)
+            .setDisabled(true),
+          new ButtonBuilder()
+            .setCustomId(buildRemindersCustomId(userId, "page", page + 1))
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji(rightEmoji)
+            .setDisabled(page >= totalPages - 1),
+        ),
+      );
+  }
+
+  return {
+    content: "",
+    components: [container],
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+  };
+}
+
 async function runHelp(interaction) {
   await interaction.reply(buildHelpPayload("general", true));
 }
@@ -771,6 +971,10 @@ async function runReminder(interaction) {
     content: `Reminder created for ${duration} minute(s): ${information}`,
     flags: MessageFlags.Ephemeral,
   });
+}
+
+async function runReminders(interaction) {
+  await interaction.reply(buildRemindersPayload(interaction.user.id, 0));
 }
 
 async function runInvite(interaction) {
@@ -907,6 +1111,53 @@ async function handleHelpSelect(interaction) {
   await interaction.update(buildHelpPayload(selected, true));
 }
 
+async function handleRemindersButton(interaction) {
+  const parsed = parseRemindersCustomId(interaction.customId);
+  if (!parsed) return;
+
+  const { action, userId, page, extra } = parsed;
+  if (interaction.user.id !== userId) {
+    await interaction.reply({
+      content: "Only the reminder owner can use these controls.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === "page") {
+    await interaction.update(buildRemindersPayload(userId, page));
+    return;
+  }
+
+  if (action === "page_label") {
+    await interaction.deferUpdate().catch(() => {});
+    return;
+  }
+
+  if (action === "delete_all") {
+    global.db.safeQuery(`DELETE FROM reminders WHERE user_id = ?`, [userId]);
+    await interaction.update(buildRemindersPayload(userId, 0));
+    return;
+  }
+
+  if (action === "delete_one") {
+    const rows = listUserReminders(userId);
+    const rowIndex = Number(extra);
+    const target =
+      Number.isInteger(rowIndex) && rowIndex >= 0 ? rows[rowIndex] : null;
+    if (!target?.type) {
+      await interaction.update(buildRemindersPayload(userId, page));
+      return;
+    }
+
+    global.db.safeQuery(
+      `DELETE FROM reminders WHERE user_id = ? AND type = ?`,
+      [userId, String(target.type)],
+    );
+    await interaction.update(buildRemindersPayload(userId, page));
+  }
+}
+
 if (!buttonHandlers.has("settings")) {
   buttonHandlers.set("settings", handleSettingsButton);
 }
@@ -923,6 +1174,10 @@ if (!selectMenuHandlers.has("help")) {
   selectMenuHandlers.set("help", handleHelpSelect);
 }
 
+if (!buttonHandlers.has(REMINDERS_ROUTE_PREFIX)) {
+  buttonHandlers.set(REMINDERS_ROUTE_PREFIX, handleRemindersButton);
+}
+
 module.exports = {
   runPing,
   runHelp,
@@ -930,5 +1185,6 @@ module.exports = {
   runInvite,
   runDice,
   runReminder,
+  runReminders,
   runSettings,
 };

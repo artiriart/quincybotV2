@@ -12,8 +12,87 @@ const {
 
 const IZZI_SHARD_LOBBY_STATE_TYPE = "izzi_shard_lobby_notify";
 
+function parseIzziCardInfoEmbed(embed) {
+  const name = String(embed?.title || "").trim();
+  const description = String(embed?.description || "");
+  if (
+    !name ||
+    !description ||
+    (!/\*\*global market price/i.test(description) &&
+      !/\*\*ability\b/i.test(description))
+  ) {
+    return null;
+  }
+
+  const approxMatch = description.match(
+    /\*\*Approx Price:\*\*\s*(?:__)?([\d,]+)(?:__)?/i,
+  );
+  const averagePrice = Number.parseInt(
+    String(approxMatch?.[1] || "").replaceAll(",", ""),
+    10,
+  );
+  const cardType = String(
+    description.match(/\*\*Card Type:\*\*\s*([^\n]+)/i)?.[1] || "",
+  ).trim();
+  const series = String(
+    description.match(/\*\*Series:\*\*\s*([^\n]+)/i)?.[1] || "",
+  ).trim();
+  const zone = String(
+    description.match(/\*\*Zone:\*\*\s*([^\n]+)/i)?.[1] || "",
+  ).trim();
+  const floors = String(
+    description.match(/\*\*Floors:\*\*\s*([^\n]+)/i)?.[1] || "",
+  ).trim();
+  const isEvent =
+    /\bevent\b/i.test(cardType) ||
+    /\bevent\b/i.test(series) ||
+    /\bevent\b/i.test(zone) ||
+    /\bevent\b/i.test(floors);
+
+  return {
+    name,
+    averagePrice:
+      Number.isFinite(averagePrice) && averagePrice >= 0 ? averagePrice : null,
+    event: isEvent ? 1 : 0,
+  };
+}
+
+function indexIzziCardInfoEmbed(embed) {
+  const parsed = parseIzziCardInfoEmbed(embed);
+  if (!parsed) return false;
+
+  const updateResult = global.db.safeQuery(
+    `
+    UPDATE izzi_cards
+    SET average_price = COALESCE(?, average_price),
+        event = ?
+    WHERE LOWER(name) = LOWER(?)
+    `,
+    [parsed.averagePrice, parsed.event, parsed.name],
+    null,
+  );
+
+  if (Number(updateResult?.changes || 0) <= 0) {
+    global.db.safeQuery(
+      `
+      INSERT INTO izzi_cards (name, average_price, event)
+      VALUES (?, COALESCE(?, 0), ?)
+      ON CONFLICT(name) DO UPDATE SET
+        average_price = COALESCE(excluded.average_price, izzi_cards.average_price),
+        event = excluded.event
+      `,
+      [parsed.name, parsed.averagePrice, parsed.event],
+      null,
+    );
+  }
+
+  return true;
+}
+
 async function handleIzziMessage(message, settings) {
   const embed = message?.embeds?.[0];
+  indexIzziCardInfoEmbed(embed);
+
   if (String(embed?.title || "").trim() === "Event Lobbies") {
     const authorIcon =
       String(embed?.author?.iconURL || "").trim() ||

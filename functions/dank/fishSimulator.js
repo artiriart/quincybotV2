@@ -3,6 +3,8 @@ const HARDCODED_SKILLS = {
   "mythical-hunter": 1,
 };
 
+const DANK_FISH_SETTINGS_STATE_TYPE = "dank_fish_settings";
+
 const DEFAULT_LOCATIONS = [
   "shallow-ocean",
   "river",
@@ -53,29 +55,52 @@ function parseFlags(row) {
   };
 }
 
-async function getOrCreateFishSettings(userId) {
-  const [row] = await global.db.safeQuery(
-    `SELECT * FROM dank_fish_settings WHERE user_id = ? LIMIT 1`,
-    [userId],
-    [],
-  );
-  if (row) return { ...row, ...parseFlags(row) };
+function normalizeFishSettingsState(raw, userId = null) {
+  let parsed = raw;
+  try {
+    if (typeof raw === "string") {
+      parsed = JSON.parse(raw);
+    }
+  } catch {
+    parsed = {};
+  }
 
-  await global.db.safeQuery(
-    `INSERT INTO dank_fish_settings (user_id) VALUES (?)`,
-    [userId],
+  return {
+    user_id: String(userId || parsed?.user_id || "").trim(),
+    target_type:
+      parsed?.target_type == null
+        ? null
+        : String(parsed.target_type).trim() || null,
+    target_id:
+      parsed?.target_id == null ? null : String(parsed.target_id).trim() || null,
+    is_hunting: Number(parsed?.is_hunting || 0) === 1 ? 1 : 0,
+    lucky_bait_enabled: Number(parsed?.lucky_bait_enabled || 0) === 1 ? 1 : 0,
+    updated_at:
+      parsed?.updated_at == null ? null : String(parsed.updated_at).trim() || null,
+  };
+}
+
+async function getOrCreateFishSettings(userId) {
+  const raw = global.db.getState(DANK_FISH_SETTINGS_STATE_TYPE, userId);
+  if (raw) {
+    const state = normalizeFishSettingsState(raw, userId);
+    return { ...state, ...parseFlags(state) };
+  }
+
+  const initial = normalizeFishSettingsState({}, userId);
+  global.db.upsertState(
+    DANK_FISH_SETTINGS_STATE_TYPE,
+    JSON.stringify(initial),
+    userId,
+    true,
   );
-  const [created] = await global.db.safeQuery(
-    `SELECT * FROM dank_fish_settings WHERE user_id = ? LIMIT 1`,
-    [userId],
-    [],
-  );
-  return { ...created, ...parseFlags(created) };
+  return { ...initial, ...parseFlags(initial) };
 }
 
 async function updateFishSettings(userId, patch = {}) {
   const current = await getOrCreateFishSettings(userId);
   const next = {
+    user_id: String(userId),
     target_type:
       patch.target_type === undefined ? current.target_type : patch.target_type,
     target_id: patch.target_id === undefined ? current.target_id : patch.target_id,
@@ -95,19 +120,14 @@ async function updateFishSettings(userId, patch = {}) {
         : patch.lucky_bait_enabled
           ? 1
           : 0,
+    updated_at: new Date().toISOString(),
   };
 
-  await global.db.safeQuery(
-    `UPDATE dank_fish_settings
-     SET target_type = ?, target_id = ?, is_hunting = ?, lucky_bait_enabled = ?, updated_at = CURRENT_TIMESTAMP
-     WHERE user_id = ?`,
-    [
-      next.target_type,
-      next.target_id,
-      next.is_hunting,
-      next.lucky_bait_enabled,
-      userId,
-    ],
+  global.db.upsertState(
+    DANK_FISH_SETTINGS_STATE_TYPE,
+    JSON.stringify(next),
+    userId,
+    true,
   );
 
   return getOrCreateFishSettings(userId);

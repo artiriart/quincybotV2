@@ -31,6 +31,42 @@ const sws_emoji_map = {
 };
 const SWS_RAID_TICKET_NOTIFY_STATE = "sws_raid_ticket_notify_state";
 
+function extractAvatarUserId(rawUrl) {
+  const url = String(rawUrl || "").trim();
+  return url.match(/\/avatars\/(\d{16,22})\//)?.[1] || null;
+}
+
+function getLastEmbed(message) {
+  if (!Array.isArray(message?.embeds) || !message.embeds.length) return null;
+  return message.embeds[message.embeds.length - 1];
+}
+
+function isCatchCooldownEmbed(embed) {
+  const description = String(embed?.description || "").trim();
+  if (!description) return false;
+  const firstLine = description.split("\n")[0]?.trim() || "";
+  return /^You spent\s+\d[\d,]*(?:\s+<a?:[^>]+>)?\s+to catch\b/i.test(firstLine);
+}
+
+async function handleDelayedCatchCooldownTick(message, settings) {
+  const lastEmbed = getLastEmbed(message);
+  if (!lastEmbed) return;
+
+  const authorIcon =
+    String(lastEmbed?.author?.iconURL || "").trim() ||
+    String(lastEmbed?.author?.icon_url || "").trim() ||
+    String(lastEmbed?.author?.iconProxyURL || "").trim() ||
+    "";
+  const userId = extractAvatarUserId(authorIcon);
+  if (!userId) return;
+
+  const enabled = settings.getUserToggle(userId, "sws_catch_cooldown_tick", false);
+  if (!enabled) return;
+  if (!isCatchCooldownEmbed(lastEmbed)) return;
+
+  await message.react("✅").catch(() => {});
+}
+
 function getRaidTicketEmojiUrl() {
   const ticketRow = global.db.safeQuery(
     `
@@ -156,6 +192,16 @@ function saveRaidTicketNotifyState(userId, state) {
 }
 
 async function handleSwsMessage(message, oldMessage, settings) {
+  if (!oldMessage && Array.isArray(message?.embeds) && message.embeds.length) {
+    setTimeout(async () => {
+      try {
+        const freshMessage = await message.channel.messages.fetch(message.id).catch(() => null);
+        if (!freshMessage) return;
+        await handleDelayedCatchCooldownTick(freshMessage, settings);
+      } catch {}
+    }, 5_000);
+  }
+
   if (!oldMessage && message?.embeds?.[0]?.description) {
     const ticketEntries = parseTicketSummaryLines(
       message.embeds[0].description,

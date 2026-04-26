@@ -14,9 +14,13 @@ const {
 } = require("discord.js");
 const { buttonHandlers } = require("../functions/interactions/button");
 const { modalHandlers } = require("../functions/interactions/modal");
+const {
+  CLAIM_ROUTE_PREFIX,
+  buildClaimMenuPayload,
+  handleClaimMenuButton,
+} = require("../functions/cardClaimPanel");
 
 const ROUTE_PREFIX = "anigamerem";
-const CLAIM_ROUTE_PREFIX = "cardclaims";
 const ITEMS_PER_PAGE = 5;
 const CARD_NAME_INPUT_ID = "card_name";
 const RARITY_INPUT_ID = "rarity";
@@ -411,92 +415,6 @@ function buildReminderPanelPayload(viewState, ephemeral = false, notice = "") {
     components: [container],
     flags: (ephemeral ? MessageFlags.Ephemeral : 0) | MessageFlags.IsComponentsV2,
   };
-}
-
-function getClaimBotMeta(rawBot) {
-  const botKey = String(rawBot || "").trim().toLowerCase();
-  if (botKey === "izzi") {
-    return { key: "izzi", dbName: "Izzi", switchLabel: "Anigame", switchTo: "anigame" };
-  }
-  return { key: "anigame", dbName: "Anigame", switchLabel: "Izzi", switchTo: "izzi" };
-}
-
-function buildClaimRecordsText(userId, botKey) {
-  const meta = getClaimBotMeta(botKey);
-  const rows = global.db.safeQuery(
-    `
-    SELECT rarity, SUM(amount) AS amount
-    FROM card_stats
-    WHERE user_id = ? AND bot_name = ?
-    GROUP BY rarity
-    ORDER BY amount DESC, rarity ASC
-    `,
-    [userId, meta.dbName],
-    [],
-  );
-
-  if (!rows.length) {
-    return "-# No claim stats tracked yet.";
-  }
-
-  return rows
-    .map((row) => {
-      const rarity = String(row?.rarity || "Unknown");
-      const emoji =
-        botKey === "anigame" ? getAnigameRarityEmoji(rarity) || "" : "";
-      return `* ${emoji ? `${emoji} ` : ""}**${rarity}** - \`${Number(row?.amount || 0).toLocaleString()}\``.trim();
-    })
-    .join("\n");
-}
-
-function buildClaimMenuPayload(userId, botKey) {
-  const meta = getClaimBotMeta(botKey);
-  const container = new ContainerBuilder()
-    .addSectionComponents(
-      new SectionBuilder()
-        .addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`## ${meta.dbName} Claims`),
-        )
-        .setButtonAccessory((button) => {
-          applyButtonEmoji(
-            button
-              .setCustomId(
-                `${CLAIM_ROUTE_PREFIX}:switch:${userId}:${meta.switchTo}`,
-              )
-              .setStyle(ButtonStyle.Secondary)
-              .setLabel(meta.switchLabel),
-            parseEmojiValue(global.db.getFeatherEmojiMarkdown("menu")),
-          );
-          return button;
-        }),
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        buildClaimRecordsText(userId, meta.key),
-      ),
-    );
-
-  return {
-    content: "",
-    components: [container],
-    flags: MessageFlags.IsComponentsV2,
-  };
-}
-
-async function handleClaimMenuButton(interaction) {
-  const [route, action, ownerId, botKey] = String(interaction.customId || "").split(":");
-  if (route !== CLAIM_ROUTE_PREFIX || action !== "switch") return;
-
-  if (!ownerId || interaction.user.id !== ownerId) {
-    await interaction.reply({
-      content: "Only the command user can switch this menu.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  await interaction.update(buildClaimMenuPayload(ownerId, botKey));
 }
 
 async function runReminderList(interaction) {

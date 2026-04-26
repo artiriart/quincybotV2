@@ -38,7 +38,6 @@ function buildViewCustomId(viewState, action, targetPage = viewState.page) {
     encodePart(viewState.sub),
     action,
     String(Number(targetPage || 0)),
-    viewState.showMultipliers ? "1" : "0",
     viewState.showDeleteUI ? "1" : "0",
     encodePart(viewState.deleteScope || ""),
     String(viewState.userId || ""),
@@ -52,7 +51,6 @@ function parseViewCustomId(customId) {
     subEnc,
     action,
     pageRaw,
-    showMultRaw,
     showDeleteRaw,
     deleteScopeEnc,
     ownerId,
@@ -64,7 +62,6 @@ function parseViewCustomId(customId) {
       main: decodePart(mainEnc),
       sub: decodePart(subEnc) || "__all__",
       page: Math.max(0, Number(pageRaw || 0)),
-      showMultipliers: String(showMultRaw || "0") === "1",
       showDeleteUI: String(showDeleteRaw || "0") === "1",
       deleteScope: decodePart(deleteScopeEnc || ""),
       userId: String(ownerId || ""),
@@ -300,33 +297,6 @@ function flattenItems(tree, main, sub) {
   return [...merged.entries()].map(([name, amount]) => ({ name, amount }));
 }
 
-function isMultiplierStatEntry(name) {
-  const text = String(name || "").trim();
-  if (!text) return false;
-  if (text.startsWith("MULTIPLIER::")) return true;
-  return /multiplier/i.test(text);
-}
-
-function buildMultiplierLines(items) {
-  const normalized = items
-    .map((entry) => {
-      const count = Number(entry?.amount || 0);
-      const text = String(entry?.name || "")
-        .replace(/^MULTIPLIER::/i, "")
-        .trim();
-      if (!text) return null;
-      return {
-        text,
-        count: Number.isFinite(count) && count > 0 ? Math.trunc(count) : 1,
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.count - a.count || a.text.localeCompare(b.text));
-
-  if (!normalized.length) return [];
-  return normalized.map((entry) => `* \`${entry.count}\` ${entry.text}`);
-}
-
 function getItemMetaMap(items) {
   const map = new Map();
   for (const item of items) {
@@ -475,14 +445,10 @@ function buildDankStatsPayload(viewState) {
   const subLabel = `${subEmoji ? `${subEmoji} ` : ""}${safeSub === "__all__" ? `All ${safeMain}` : safeSub}`;
 
   const items = flattenItems(tree, safeMain, safeSub);
-  const multiplierItems = items.filter((entry) => isMultiplierStatEntry(entry?.name));
-  const normalItems = items.filter((entry) => !isMultiplierStatEntry(entry?.name));
-  const itemMetaMap = getItemMetaMap(normalItems);
+  const itemMetaMap = getItemMetaMap(items);
   const corner = global.db.getFeatherEmojiMarkdown("corner-down-right") || "↳";
 
-  const { lines, total } = buildStatsLines(normalItems, itemMetaMap, corner);
-  const multiplierLines = buildMultiplierLines(multiplierItems);
-  const hasMultipliers = multiplierLines.length > 0;
+  const { lines, total } = buildStatsLines(items, itemMetaMap, corner);
 
   const totalPages = Math.max(1, Math.ceil(lines.length / ITEMS_PER_PAGE));
   const page = Math.min(Math.max(0, Number(viewState.page || 0)), totalPages - 1);
@@ -540,26 +506,6 @@ function buildDankStatsPayload(viewState) {
         new ButtonBuilder()
           .setCustomId(
             buildViewCustomId(
-              { ...viewState, showMultipliers: !viewState.showMultipliers },
-              "tm",
-              page,
-            ),
-          )
-          .setStyle(ButtonStyle.Secondary)
-          .setLabel(viewState.showMultipliers ? "Collapse Multipliers" : "Expand Multipliers")
-          .setEmoji(
-            parseEmojiValue(
-              global.db.getFeatherEmojiMarkdown(
-                viewState.showMultipliers ? "log-out" : "log-in",
-              ),
-            ) || {
-              name: viewState.showMultipliers ? "📤" : "📥",
-            },
-          )
-          .setDisabled(!hasMultipliers),
-        new ButtonBuilder()
-          .setCustomId(
-            buildViewCustomId(
               { ...normalizedView, showDeleteUI: true },
               "td",
               0,
@@ -574,14 +520,6 @@ function buildDankStatsPayload(viewState) {
           ),
       ),
     );
-
-  if (hasMultipliers && viewState.showMultipliers) {
-    container1
-      .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-      .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(multiplierLines.join("\n")),
-      );
-  }
 
   const container2 = new ContainerBuilder();
   if (showSubcategorySelect) {
@@ -669,7 +607,6 @@ async function runDankStats(interaction) {
     main: "Adventure",
     sub: "__all__",
     page: 0,
-    showMultipliers: false,
     showDeleteUI: false,
     deleteScope: "",
   };
@@ -693,8 +630,6 @@ async function handleDankStatsButton(interaction) {
   } else if (action === "td") {
     state.showDeleteUI = true;
     state.page = 0;
-  } else if (action === "tm") {
-    state.showMultipliers = !state.showMultipliers;
   } else if (action === "di") {
     const modal = new ModalBuilder()
       .setCustomId(buildViewCustomId(state, "dm", state.page))

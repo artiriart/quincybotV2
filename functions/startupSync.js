@@ -852,6 +852,25 @@ async function syncIzziCards(sqlite) {
   const cards = extractListPayload(
     await fetchJson(IZZI_CARDS_URL, "Izzi cards"),
   );
+  const isEventCard = (raw) => {
+    const rawType = String(raw?.card_type || raw?.cardType || raw?.type2 || "").trim();
+    const rawSeries = String(raw?.series || raw?.anime || raw?.show || "").trim();
+    const rawZone = String(raw?.zone || "").trim();
+    const rawFloors = Array.isArray(raw?.floors)
+      ? raw.floors.join(",")
+      : String(raw?.floors || "").trim();
+
+    return (
+      raw?.has_event_ended === true ||
+      raw?.is_event === true ||
+      raw?.isEvent === true ||
+      raw?.event === true ||
+      /\bevent\b/i.test(rawType) ||
+      /\bevent\b/i.test(rawSeries) ||
+      /\bevent\b/i.test(rawZone) ||
+      /\bevent\b/i.test(rawFloors)
+    );
+  };
   const upsertCard = sqlite.prepare(`
     INSERT INTO izzi_cards (name, ability, element, event, base_stats, darkzone)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -879,7 +898,7 @@ async function syncIzziCards(sqlite) {
       name,
       String(raw?.passivename || "").trim() || null,
       String(raw?.type || "").trim() || null,
-      raw?.has_event_ended ? 1 : 0,
+      isEventCard(raw) ? 1 : 0,
       stats,
       raw?.isDarkZone || raw?.is_dark_zone ? 1 : 0,
     );

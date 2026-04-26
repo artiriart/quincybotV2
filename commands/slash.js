@@ -63,6 +63,9 @@ module.exports = {
           .setDescription("Reminder text (default: Custom Reminder)")
           .setRequired(false),
       ),
+    new SlashCommandBuilder()
+      .setName("reminders")
+      .setDescription("List and manage your reminders"),
   ],
   async execute(interaction, client) {
     if (!interaction?.isChatInputCommand?.()) return;

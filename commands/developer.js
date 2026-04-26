@@ -537,10 +537,33 @@ function resolveCurrentDankOptionSelection(state) {
       ? state.sub
       : "__all__";
 
+  const primaryScope = showSubcategory ? `sub:${safeMain}` : "main";
+  const primaryValue = showSubcategory ? safeSub : safeMain;
+  const targets = [{ scope: primaryScope, optionValue: primaryValue }];
+
+  if (showSubcategory && safeSub === "__all__") {
+    targets.push({ scope: "main", optionValue: safeMain });
+  }
+
   return {
-    scope: showSubcategory ? `sub:${safeMain}` : "main",
-    optionValue: showSubcategory ? safeSub : safeMain,
+    scope: primaryScope,
+    optionValue: primaryValue,
+    targets,
   };
+}
+
+function upsertDankOptionMetaRecord(scope, optionValue, itemName, emoji, description) {
+  global.db.safeQuery(
+    `
+    INSERT INTO dank_stats_option_meta (scope, option_value, item_name, emoji, description)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(scope, option_value) DO UPDATE SET
+      item_name = excluded.item_name,
+      emoji = excluded.emoji,
+      description = excluded.description
+    `,
+    [scope, optionValue, itemName, emoji, description],
+  );
 }
 
 function build7w7ItemEditorPanel(selectedItem = null) {
@@ -1395,7 +1418,7 @@ async function handleDevModal(interaction) {
       return;
     }
 
-    const { scope, optionValue } = resolveCurrentDankOptionSelection(state);
+    const { scope, optionValue, targets } = resolveCurrentDankOptionSelection(state);
     const emojiInput = interaction.fields
       .getTextInputValue(DANK_OPTION_EMOJI_INPUT_ID)
       .trim();
@@ -1409,17 +1432,16 @@ async function handleDevModal(interaction) {
       return;
     }
 
-    global.db.safeQuery(
-      `
-      INSERT INTO dank_stats_option_meta (scope, option_value, item_name, emoji, description)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(scope, option_value) DO UPDATE SET
-        item_name = excluded.item_name,
-        emoji = excluded.emoji,
-        description = excluded.description
-      `,
-      [scope, optionValue, null, emojiInput || null, current.description || null],
-    );
+    for (const target of targets) {
+      const targetCurrent = getDankOptionMeta(target.scope, target.optionValue);
+      upsertDankOptionMetaRecord(
+        target.scope,
+        target.optionValue,
+        targetCurrent.item_name || null,
+        emojiInput || null,
+        targetCurrent.description || current.description || null,
+      );
+    }
 
     const payload = buildDankOptionEditorPayload(state);
     if (payload?.state) {
@@ -1427,7 +1449,7 @@ async function handleDevModal(interaction) {
       delete payload.state;
     }
 
-    await interaction.reply(payload);
+    await interaction.update(payload);
     return;
   }
 
@@ -1442,23 +1464,22 @@ async function handleDevModal(interaction) {
       return;
     }
 
-    const { scope, optionValue } = resolveCurrentDankOptionSelection(state);
+    const { scope, optionValue, targets } = resolveCurrentDankOptionSelection(state);
     const description = interaction.fields
       .getTextInputValue(DANK_OPTION_DESCRIPTION_INPUT_ID)
       .trim();
     const current = getDankOptionMeta(scope, optionValue);
 
-    global.db.safeQuery(
-      `
-      INSERT INTO dank_stats_option_meta (scope, option_value, item_name, emoji, description)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(scope, option_value) DO UPDATE SET
-        item_name = excluded.item_name,
-        emoji = excluded.emoji,
-        description = excluded.description
-      `,
-      [scope, optionValue, current.item_name || null, current.emoji || null, description || null],
-    );
+    for (const target of targets) {
+      const targetCurrent = getDankOptionMeta(target.scope, target.optionValue);
+      upsertDankOptionMetaRecord(
+        target.scope,
+        target.optionValue,
+        targetCurrent.item_name || current.item_name || null,
+        targetCurrent.emoji || current.emoji || null,
+        description || null,
+      );
+    }
 
     const payload = buildDankOptionEditorPayload(state);
     if (payload?.state) {
@@ -1466,7 +1487,7 @@ async function handleDevModal(interaction) {
       delete payload.state;
     }
 
-    await interaction.reply(payload);
+    await interaction.update(payload);
     return;
   }
 

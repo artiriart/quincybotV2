@@ -99,6 +99,12 @@ function toCompactMultiplierEntry(rawReward) {
   return `MULTIPLIER::${amount} ${emoji ? `${emoji} ` : ""}for ${duration}`;
 }
 
+function shouldIgnoreTrackedReward(rawReward) {
+  const reward = String(rawReward || "").trim().toLowerCase();
+  if (!reward) return true;
+  return reward.includes("crafting speed") || reward.includes("farming speed");
+}
+
 function shouldTrackDankStats(getUserToggle, userId) {
   if (!userId) return false;
   return !getUserToggle(userId, "dank_optout_all_stat_tracking", false);
@@ -286,9 +292,9 @@ async function handleDankMessage(message, oldMessage, settings) {
     for (let reward of rewardsField?.split("\n") || []) {
       reward = reward.split("-")[1]?.trim();
       if (!reward) continue;
+      if (shouldIgnoreTrackedReward(reward)) continue;
       const compactMultiplier = toCompactMultiplierEntry(reward);
       if (compactMultiplier) {
-        upsertDankStat(user.id, compactMultiplier, 1, `Adventure_${adv}`);
         continue;
       }
       if (reward.includes("Title") || reward.includes("Pet")) {
@@ -358,14 +364,9 @@ async function handleDankMessage(message, oldMessage, settings) {
       .filter(Boolean);
 
     for (const reward of rewards || []) {
+      if (shouldIgnoreTrackedReward(reward)) continue;
       const compactMultiplier = toCompactMultiplierEntry(reward);
       if (compactMultiplier) {
-        upsertDankStat(
-          user.id,
-          compactMultiplier,
-          1,
-          `Random Event_${eventType}`,
-        );
         continue;
       }
       if (reward.includes("Title") || reward.includes("Pet")) {
@@ -404,14 +405,9 @@ async function handleDankMessage(message, oldMessage, settings) {
       const rewardLines = reward.split("and").map((r) => r.trim());
 
       for (const rewardLine of rewardLines) {
+        if (shouldIgnoreTrackedReward(rewardLine)) continue;
         const compactMultiplier = toCompactMultiplierEntry(rewardLine);
         if (compactMultiplier) {
-          upsertDankStat(
-            user.id,
-            compactMultiplier,
-            1,
-            "Random Event_Boss Battle",
-          );
           continue;
         }
         const parsed = parseRewardEntry(rewardLine);

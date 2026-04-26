@@ -7,7 +7,6 @@
 - 7w7:
     - implement: raid guide via reacts on raid menus
     - test: ticket refill notifier + setting on x tickets
-    - implement: tick react like dank Alert for catching CD
 
 - anigame:
     - test: cl/f reminder & fix claim
@@ -24,22 +23,13 @@
         - keep older logic in terms of core game logic
 
 - izzi:
-    - implement: raidlist
     - implement: crate opening helper / extractor
-    - implement: index market via ci for raidlist
-    - fix: claim, initial command != button interaction
 
 - dank:
-    - fix: weekly bundle box reminders
+    - fix: weekly bundle box reminders, if mel doesnt add himself
     - fix: do weekly sync for fishing simulator if new fish are there
-    - fix: delete fish_settings, dank_stats_option_meta, sqlite_sequence, lab tables,  table from schema and sqlite
-    - fix: Expand Multipliers not working
-    - fix: D20 Multipliers for Crafting are showing
-    - fix: /dev edit dank-options should update() and not reply() to interactions, Main Category should be editable too (currently only editable if there are no submenus, "All Adventure" emoji (Submenu) should also go for the Adventure Main Category )
-    - fix: new dank scraping method
 
 - utility:
-    - implement: list all reminders command
     - implement: upload Quincy db periodically to discord via gzip'ing tables (json/yaml) as backup
 
 - clash royale:
