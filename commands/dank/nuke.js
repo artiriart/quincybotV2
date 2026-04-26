@@ -240,7 +240,7 @@ function buildNukePanelPayload(viewState, notice = "") {
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## > ${mapEmoji} Total: ⏣ ${formatCoins(sessionTotal)} | ${coinNukeEmoji}${sessionNukes || entries.length}`,
+        `## > ${mapEmoji} Total: ⏣ ${formatCoins(sessionTotal)} | ${coinNukeEmoji}${sessionNukes || entries.length}\n-# Note: Use friends/pool with caution!`,
       ),
     )
     .addActionRowComponents(
@@ -249,7 +249,7 @@ function buildNukePanelPayload(viewState, notice = "") {
           new ButtonBuilder()
             .setCustomId(`${ROUTE_PREFIX}:share:${viewState.userId}`)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel("Friends share"),
+            .setLabel("/friends share"),
           clipboardEmoji,
         ),
         applyButtonEmoji(

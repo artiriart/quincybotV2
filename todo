@@ -1,5 +1,8 @@
 - make files shorter by moving helper functions or creating dirs and making code less obfuscated overall
 - find ways to make RAM usage lower
+- update modals which can use it with dropdown (new discord feature, can use dropdowns on modal e.g. for y/n question)
+- update README.md
+
 
 - 7w7:
     - implement: raid guide via reacts on raid menus
@@ -24,13 +27,16 @@
     - implement: raidlist
     - implement: crate opening helper / extractor
     - implement: index market via ci for raidlist
-    - test: event shard extractor
     - fix: claim, initial command != button interaction
 
 - dank:
     - fix: weekly bundle box reminders
     - fix: do weekly sync for fishing simulator if new fish are there
     - fix: delete fish_settings, dank_stats_option_meta, sqlite_sequence, lab tables,  table from schema and sqlite
+    - fix: Expand Multipliers not working
+    - fix: D20 Multipliers for Crafting are showing
+    - fix: /dev edit dank-options should update() and not reply() to interactions, Main Category should be editable too (currently only editable if there are no submenus, "All Adventure" emoji (Submenu) should also go for the Adventure Main Category )
+    - fix: new dank scraping method
 
 - utility:
     - implement: list all reminders command

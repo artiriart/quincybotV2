@@ -288,7 +288,7 @@ async function fetchAndCacheChances({
             "https://dankmemer.lol/api/bot/fish/simulator",
             {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", Referer: "https://dankmemer.lol/fish/simulator" },
               body: JSON.stringify(payload),
               signal: AbortSignal.timeout(30_000),
             },

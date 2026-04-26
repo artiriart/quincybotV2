@@ -38,7 +38,7 @@ const DANK_OPTION_MAIN_SELECT_PREFIX = `${CUSTOM_ID_PREFIX}:dankoptions:main`;
 const DANK_OPTION_SUB_SELECT_PREFIX = `${CUSTOM_ID_PREFIX}:dankoptions:sub`;
 const DANK_OPTION_EDIT_EMOJI_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankoptions:edit_emoji_modal`;
 const DANK_OPTION_EDIT_DESCRIPTION_MODAL_PREFIX = `${CUSTOM_ID_PREFIX}:dankoptions:edit_description_modal`;
-const DANK_OPTION_ITEM_INPUT_ID = "option_item_name";
+const DANK_OPTION_EMOJI_INPUT_ID = "option_emoji";
 const DANK_OPTION_DESCRIPTION_INPUT_ID = "option_description";
 
 // Dank multipliers editor
@@ -369,7 +369,14 @@ function parseEmojiValue(raw) {
     };
   }
 
-  if (text.length <= 8) return { name: text };
+  if (
+    text.length <= 32 &&
+    (/\p{Extended_Pictographic}/u.test(text) ||
+      /(?:\p{Regional_Indicator}){2}/u.test(text) ||
+      /[#*0-9]\uFE0F?\u20E3/u.test(text))
+  ) {
+    return { name: text };
+  }
   return null;
 }
 
@@ -411,7 +418,7 @@ function getDankOptionMeta(scope, optionValue) {
   const row =
     global.db.safeQuery(
       `
-      SELECT scope, option_value, item_name, description
+      SELECT scope, option_value, item_name, emoji, description
       FROM dank_stats_option_meta
       WHERE scope = ? AND option_value = ?
       LIMIT 1
@@ -421,6 +428,7 @@ function getDankOptionMeta(scope, optionValue) {
       scope,
       option_value: optionValue,
       item_name: null,
+      emoji: null,
       description: null,
     };
 
@@ -438,8 +446,9 @@ function getDankOptionMeta(scope, optionValue) {
 
   return {
     ...row,
+    emoji: row.emoji || null,
     item_name: item?.name || row.item_name || null,
-    item_emoji: item?.application_emoji || null,
+    item_emoji: row.emoji || item?.application_emoji || null,
   };
 }
 
@@ -1085,18 +1094,16 @@ async function handleDevButton(interaction) {
     const selectedMeta = getDankOptionMeta(scope, optionValue);
 
     const modal = new ModalBuilder()
-      .setCustomId(
-        `${DANK_OPTION_EDIT_EMOJI_MODAL_PREFIX}:${token}`,
-      )
-      .setTitle(`Emoji: ${scope} / ${optionValue}`)
+      .setCustomId(`${DANK_OPTION_EDIT_EMOJI_MODAL_PREFIX}:${token}`)
+      .setTitle("Edit Option Emoji")
       .addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
-            .setCustomId(DANK_OPTION_ITEM_INPUT_ID)
-            .setLabel("Item Name (blank to clear)")
+            .setCustomId(DANK_OPTION_EMOJI_INPUT_ID)
+            .setLabel("Emoji markdown/unicode (blank to clear)")
             .setStyle(TextInputStyle.Short)
             .setRequired(false)
-            .setValue(String(selectedMeta.item_name || "")),
+            .setValue(String(selectedMeta.item_emoji || "")),
         ),
       );
 
@@ -1130,10 +1137,8 @@ async function handleDevButton(interaction) {
     const selectedMeta = getDankOptionMeta(scope, optionValue);
 
     const modal = new ModalBuilder()
-      .setCustomId(
-        `${DANK_OPTION_EDIT_DESCRIPTION_MODAL_PREFIX}:${token}`,
-      )
-      .setTitle(`Description: ${scope} / ${optionValue}`)
+      .setCustomId(`${DANK_OPTION_EDIT_DESCRIPTION_MODAL_PREFIX}:${token}`)
+      .setTitle("Edit Option Description")
       .addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
@@ -1171,7 +1176,7 @@ async function handleDevButton(interaction) {
 
     const modal = new ModalBuilder()
       .setCustomId(`${DANK_MULTIPLIER_EDIT_EMOJI_MODAL_PREFIX}:${token}`)
-      .setTitle(`Emoji: ${state.type} / ${selected.name}`)
+      .setTitle("Edit Multiplier Emoji")
       .addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
@@ -1209,7 +1214,7 @@ async function handleDevButton(interaction) {
 
     const modal = new ModalBuilder()
       .setCustomId(`${DANK_MULTIPLIER_EDIT_DESCRIPTION_MODAL_PREFIX}:${token}`)
-      .setTitle(`Description: ${state.type} / ${selected.name}`)
+      .setTitle("Edit Multiplier Description")
       .addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
@@ -1391,15 +1396,14 @@ async function handleDevModal(interaction) {
     }
 
     const { scope, optionValue } = resolveCurrentDankOptionSelection(state);
-    const itemInput = interaction.fields
-      .getTextInputValue(DANK_OPTION_ITEM_INPUT_ID)
+    const emojiInput = interaction.fields
+      .getTextInputValue(DANK_OPTION_EMOJI_INPUT_ID)
       .trim();
     const current = getDankOptionMeta(scope, optionValue);
 
-    const matchedItem = itemInput ? findDankItemByLooseName(itemInput) : null;
-    if (itemInput && !matchedItem) {
+    if (emojiInput && !parseEmojiValue(emojiInput)) {
       await interaction.reply({
-        content: `No dank item found for: ${itemInput}`,
+        content: "Emoji must be a custom emoji markdown like `<:name:id>` or a unicode emoji.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1407,13 +1411,14 @@ async function handleDevModal(interaction) {
 
     global.db.safeQuery(
       `
-      INSERT INTO dank_stats_option_meta (scope, option_value, item_name, description)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO dank_stats_option_meta (scope, option_value, item_name, emoji, description)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(scope, option_value) DO UPDATE SET
         item_name = excluded.item_name,
+        emoji = excluded.emoji,
         description = excluded.description
       `,
-      [scope, optionValue, matchedItem?.name || null, current.description || null],
+      [scope, optionValue, null, emojiInput || null, current.description || null],
     );
 
     const payload = buildDankOptionEditorPayload(state);
@@ -1445,13 +1450,14 @@ async function handleDevModal(interaction) {
 
     global.db.safeQuery(
       `
-      INSERT INTO dank_stats_option_meta (scope, option_value, item_name, description)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO dank_stats_option_meta (scope, option_value, item_name, emoji, description)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(scope, option_value) DO UPDATE SET
         item_name = excluded.item_name,
+        emoji = excluded.emoji,
         description = excluded.description
       `,
-      [scope, optionValue, current.item_name || null, description || null],
+      [scope, optionValue, current.item_name || null, current.emoji || null, description || null],
     );
 
     const payload = buildDankOptionEditorPayload(state);
@@ -1587,13 +1593,6 @@ module.exports = {
             .setName("multiplier")
             .setDescription(
               "Panel to manually edit dankmemer multipliers (e.g. for adding emoji/description)",
-            ),
-        )
-        .addSubcommand((subcommand) =>
-          subcommand
-            .setName("randomevents")
-            .setDescription(
-              "Panel to edit dankmemer random events list (e.g. for changing lb order)",
             ),
         )
         .addSubcommand((subcommand) =>

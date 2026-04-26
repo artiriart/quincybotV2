@@ -175,7 +175,7 @@ async function fetchSimulatorData(userId, force = false) {
   const getResponse = await fetch(
     `${GET_SIMULATOR_URL}?id=${encodeURIComponent(userId)}`,
     {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", Referer: "https://dankmemer.lol/fish/simulator" },
       signal: AbortSignal.timeout(30_000),
     },
   );
@@ -188,7 +188,7 @@ async function fetchSimulatorData(userId, force = false) {
 
   const postResponse = await fetch(POST_SIMULATOR_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Referer: "https://dankmemer.lol/fish/simulator" },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(30_000),
   });

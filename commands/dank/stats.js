@@ -85,7 +85,12 @@ function parseEmojiValue(raw) {
     };
   }
 
-  if (text.length <= 8) {
+  if (
+    text.length <= 32 &&
+    (/\p{Extended_Pictographic}/u.test(text) ||
+      /(?:\p{Regional_Indicator}){2}/u.test(text) ||
+      /[#*0-9]\uFE0F?\u20E3/u.test(text))
+  ) {
     return { name: text };
   }
 
@@ -190,7 +195,7 @@ function getOptionMeta(scope, value) {
   const row =
     global.db.safeQuery(
       `
-      SELECT item_name, description
+      SELECT item_name, emoji, description
       FROM dank_stats_option_meta
       WHERE scope = ? AND option_value = ?
       LIMIT 1
@@ -200,7 +205,8 @@ function getOptionMeta(scope, value) {
   if (!row?.item_name) {
     return {
       item_name: null,
-      item_emoji: null,
+      emoji: row?.emoji || null,
+      item_emoji: row?.emoji || null,
       item_display_name: null,
       description: row?.description || null,
     };
@@ -218,7 +224,8 @@ function getOptionMeta(scope, value) {
 
   return {
     item_name: row.item_name,
-    item_emoji: item?.application_emoji || null,
+    emoji: row?.emoji || null,
+    item_emoji: row?.emoji || item?.application_emoji || null,
     item_display_name: item?.name || row.item_name,
     description: row?.description || null,
   };

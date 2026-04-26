@@ -334,7 +334,8 @@ function shouldIgnoreInMaster(type, name) {
       lower.includes("omega") ||
       lower.includes("prestige") ||
       lower.includes("level 20,000") ||
-      lower.includes("level 20000")
+      lower.includes("level 20000") ||
+      lower.includes("fish season")
     );
   }
   if (type === "coins") {
@@ -460,15 +461,16 @@ function indexDankMultiplierSnapshot(userId, type, description) {
       String(entry.name || "").toLowerCase() === "shredded cheese";
     const amountToStore = isShreddedCheeseXp ? 1.5 : entry.amount;
 
-    const isIgnoreXp = String(entry.name || "")
-      .toLowerCase()
-      ?.includes([
+    const isIgnoreXp =
+      normalizedType === "xp" &&
+      [
         "low level",
         "new user",
         "level up rewards",
         "delta 9 roll",
         "miscellaneous",
-      ]);
+        "fish season",
+      ].some((pattern) => String(entry.name || "").toLowerCase().includes(pattern));
 
     if (isIgnoreXp) {
       global.db.safeQuery(

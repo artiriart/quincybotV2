@@ -498,9 +498,9 @@ async function syncDankFishEntities(sqlite, existingEmojis, fishPayload) {
 async function syncDankItemsAndEmojis(sqlite, existingEmojis) {
   const app = global.bot?.application;
   const dankPayload = extractListPayload(
-    await fetchJson(DANK_ITEMS_URL, "Dank items"),
+    await fetchJson(DANK_ITEMS_URL, "Dank items", { Referer: "https://dankmemer.lol/items" }),
   );
-  const fishPayload = await fetchJson(DANK_FISH_DATA_URL, "Dank fish data");
+  const fishPayload = await fetchJson(DANK_FISH_DATA_URL, "Dank fish data", { Referer: "https://dankmemer.lol/fish" });
   const customValues = loadCustomDankValues();
 
   const byName = new Map();
