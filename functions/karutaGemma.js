@@ -39,21 +39,46 @@ function normalizeCards(rawCards) {
     .filter((card) => card.name || card.series);
 }
 
-function buildGemmaPrompt() {
-  return [
-    "You see 3 or 4 cards. Extract and list the following details for each card:",
-    "",
-    "Name (Top first text)",
-    "Series (Bottom Text)",
-    "",
-    "Provide the output as a consistent JSON with this format:",
-    '{ "cards": [ { "card_index": 0, "name": "Name", "series": "Series" } ] }',
-    "",
-    "Fallback:",
-    '- If a field is unreadable, set it to "".',
-    "- If card count is uncertain, return the best 3 or 4 cards detected.",
-    "- Return only JSON without markdown or extra explanation.",
-  ].join("\n");
+function buildSystemInstruction() {
+  return `[System Objective]
+You are a high-throughput, sub-millisecond OCR data-extraction pipeline for Karuta multi-card drops. Maximize processing velocity. Token generation throughput takes absolute priority over deep cognitive verification. Bypass consistency re-checking loops.
+
+[Execution Rules]
+1. ZERO prose, greetings, markdown formatting syntax (do not include \`\`\`json wrappers), or trailing commentary.
+2. Directly process the raw text stream, image context, or OCR payload.
+3. Isolate the 3 to 4 distinct card objects displayed in the drop arrangement.
+   - Capture "Name" from the top-most prominent textual coordinate of the card bound.
+   - Capture "Series" from the bottom-most textual coordinate of the card bound.
+
+[Output Format]
+Output exclusively raw, mini-fied valid JSON matching the schema below. If structural details are degraded or ambiguous, execute an immediate high-speed inference fallback; do not stall execution loops.
+
+{"cards":[{"card_index":0,"name":"Extracted Name","series":"Extracted Series"}]}
+
+[Fallback Criteria]
+- Unreadable Field: Set property to "".
+- Indeterminate Card Count: Populate array using the highest-confidence 3 or 4 candidate card matrices detected.`;
+}
+
+function buildUserPrompt() {
+  return `[Context] Input: 1 Image containing a Karuta card drop matrix (typically a
+horizontal grid of 3 or 4 distinct cards).
+
+[Task] Analyze the visual layout of the provided image. Isolate each card
+bounding box from left to right, and extract the text strings based on their
+spatial orientation.
+
+[Spatial Mapping Rules] For each detected card matrix (Index 0 to 3):
+
+1.  Locate the top-most text field inside the card border -> Extract as "name".
+2.  Locate the bottom-most text field inside the card border -> Extract as
+    "series".
+
+[Output Constraints] Execute immediate greedy decoding. Do not verify spellings
+or look for hidden visual details. Output the data using the strict, minified
+JSON schema below. No markdown wrappers. No chat filler.
+
+{"cards":[{"card_index":0,"name":"NameText","series":"SeriesText"}]}`;
 }
 
 function collectResponseTextFromPayload(payload) {
@@ -126,7 +151,7 @@ async function recognizeKarutaCardsWithGemmaFromUrl(imageUrl) {
   const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
   const imageB64 = imageBuffer.toString("base64");
 
-  const model = String(process.env.KARUTA_GEMMA_MODEL || "gemini-3.1-flash-lite-preview").trim();
+  const model = String(process.env.KARUTA_GEMMA_MODEL || "gemma-4-31b-it").trim();
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent`;
 
   let lastStatus = "no-response";
@@ -139,11 +164,14 @@ async function recognizeKarutaCardsWithGemmaFromUrl(imageUrl) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: buildSystemInstruction() }]
+        },
         contents: [
           {
             role: "user",
             parts: [
-              { text: buildGemmaPrompt() },
+              { text: buildUserPrompt() },
               {
                 inline_data: {
                   mime_type: contentType || "image/jpeg",
@@ -153,11 +181,14 @@ async function recognizeKarutaCardsWithGemmaFromUrl(imageUrl) {
             ],
           },
         ],
+        tools: [],
         generationConfig: {
+          topP: 0.1,
           thinkingConfig: {
             thinkingLevel: "MINIMAL",
           },
           mediaResolution: "MEDIA_RESOLUTION_LOW",
+          responseMimeType: "text/plain",
         },
       }),
     }).catch(() => null);
