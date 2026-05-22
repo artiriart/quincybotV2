@@ -70,47 +70,7 @@ const schema = {
     _constraint:
       "PRIMARY KEY (creature_id, location_id, tool_id, bait_id, hour_utc, is_tuesday)",
   },
-  // ===== CLASH ROYALE DATA =====
-  clash_royale_cards: {
-    name: "TEXT NOT NULL",
-    card_emoji: "TEXT DEFAULT NULL",
-    hero_emoji: "TEXT DEFAULT NULL",
-    evo_emoji: "TEXT DEFAULT NULL",
-    rarity: "TEXT DEFAULT NULL",
-    elixir_cost: "INTEGER DEFAULT NULL",
-    card_id: "INTEGER DEFAULT NULL",
-    is_event_only: "BOOLEAN DEFAULT 0",
-    _constraint: "PRIMARY KEY (name)",
-  },
-  betroyale_games: {
-    game_id: "TEXT NOT NULL",
-    channel_id: "TEXT NOT NULL",
-    message_id: "TEXT DEFAULT NULL",
-    player1_id: "TEXT NOT NULL",
-    player2_id: "TEXT NOT NULL",
-    round: "INTEGER DEFAULT 1",
-    round_type: "TEXT DEFAULT 'normal'",
-    special_event_kind: "TEXT DEFAULT NULL",
-    evo_hero_events_enabled: "BOOLEAN DEFAULT 0",
-    pool_json: "TEXT DEFAULT '[]'",
-    seen_cards_json: "TEXT DEFAULT '[]'",
-    p1_deck_json: "TEXT DEFAULT '[]'",
-    p2_deck_json: "TEXT DEFAULT '[]'",
-    p1_specials_json: "TEXT DEFAULT '[]'",
-    p2_specials_json: "TEXT DEFAULT '[]'",
-    p1_used_powers_json: "TEXT DEFAULT '[]'",
-    p2_used_powers_json: "TEXT DEFAULT '[]'",
-    bonus_one_tokens: "INTEGER DEFAULT 0",
-    p1_bonus_ones_used: "INTEGER DEFAULT 0",
-    p2_bonus_ones_used: "INTEGER DEFAULT 0",
-    p1_bet_json: "TEXT DEFAULT NULL",
-    p2_bet_json: "TEXT DEFAULT NULL",
-    p1_last_award_json: "TEXT DEFAULT NULL",
-    p2_last_award_json: "TEXT DEFAULT NULL",
-    status: "TEXT DEFAULT 'active'",
-    created_at: "TEXT DEFAULT CURRENT_TIMESTAMP",
-    _constraint: "PRIMARY KEY (game_id)",
-  },
+
   // ===== 7W7 BOT DATA =====
   // ===== ANIME BOTS DATA =====
   card_stats: {

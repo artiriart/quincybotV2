@@ -13,8 +13,7 @@ const IZZI_ABILITIES_URL = "https://api.izzi-xenex.xyz/api/v1/ums/abilities";
 const IZZI_ITEMS_URL = "https://api.izzi-xenex.xyz/api/v1/ums/items";
 const ANIGAME_SHEET_GVIZ_URL =
   "https://docs.google.com/spreadsheets/d/14qAWkLyjMCI6VXgEgtWWDlDq5MQfotHhLYW6p-Qntlc/gviz/tq?tqx=out:json&sheet=cards";
-const CLASH_ROYALE_CARDS_URL =
-  "https://raw.githubusercontent.com/RoyaleAPI/cr-api-data/master/docs/json/cards.json";
+
 
 const CUSTOM_DANK_VALUES_PATH = path.join(
   __dirname,
@@ -1092,100 +1091,6 @@ async function syncAnigameCards(sqlite) {
   );
 }
 
-async function syncClashRoyaleCards(sqlite, existingEmojis) {
-  const GITHUB_CONTENTS_URL =
-    "https://api.github.com/repos/RoyaleAPI/cr-api-assets/contents/cards-75";
-
-  const [allEntries, repoFiles] = await Promise.all([
-    fetchJson(CLASH_ROYALE_CARDS_URL, "RoyaleAPI card data").catch(() => []),
-    fetchJson(GITHUB_CONTENTS_URL, "RoyaleAPI asset list", {
-      "User-Agent": "quincybotV2",
-    }).catch((err) => {
-      console.error(
-        "Clash Royale GitHub asset sync failed:",
-        err?.message || err,
-      );
-      return [];
-    }),
-  ]);
-
-  const app = global.bot?.application;
-  const fileMap = new Map();
-  if (Array.isArray(repoFiles)) {
-    for (const file of repoFiles) {
-      if (file.type === "file" && file.download_url) {
-        fileMap.set(String(file.name).toLowerCase(), file.download_url);
-      }
-    }
-  }
-
-  const upsertCR = sqlite.prepare(`
-    INSERT INTO clash_royale_cards (name, card_emoji, hero_emoji, evo_emoji, rarity, elixir_cost, card_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(name) DO UPDATE SET
-      card_emoji = COALESCE(excluded.card_emoji, clash_royale_cards.card_emoji),
-      hero_emoji = COALESCE(excluded.hero_emoji, clash_royale_cards.hero_emoji),
-      evo_emoji = COALESCE(excluded.evo_emoji, clash_royale_cards.evo_emoji),
-      rarity = excluded.rarity,
-      elixir_cost = excluded.elixir_cost,
-      card_id = excluded.card_id
-  `);
-
-  let createdEmojis = 0;
-
-  for (const card of allEntries) {
-    const name = String(card.name || "").trim();
-    if (!name) continue;
-
-    const slug = String(card.key || "").toLowerCase();
-    const rarity = String(card.rarity || "").toUpperCase();
-    const elixir = card.elixir != null ? Number(card.elixir) : null;
-    const cardId = Number.isFinite(Number(card.id)) ? Number(card.id) : null;
-
-    // Helper to ensure emoji and return markdown
-    const getEmoji = async (type, filename) => {
-      const url = fileMap.get(filename.toLowerCase());
-      if (!url) return null;
-
-      const emojiName = normalizeEmojiName(`${slug}_${type}`, "cr_");
-      let emoji = existingEmojis.get(emojiName.toLowerCase()) || null;
-      if (!emoji && app?.emojis) {
-        emoji = await ensureApplicationEmoji(
-          app,
-          existingEmojis,
-          emojiName,
-          url,
-          `CR ${type}`,
-        );
-        if (emoji) createdEmojis += 1;
-      }
-      return emojiMarkdown(emoji);
-    };
-
-    const cardEmojiMd = await getEmoji("card", `${slug}.png`);
-    let heroEmojiMd = await getEmoji("hero", `${slug}-hero.png`);
-    const evoEmojiMd = await getEmoji("evo", `${slug}-ev1.png`);
-
-    // Champions are counted as heroes too; fallback to base emoji if -hero is missing
-    if (rarity === "CHAMPION" && !heroEmojiMd) {
-      heroEmojiMd = cardEmojiMd;
-    }
-
-    upsertCR.run(
-      name,
-      cardEmojiMd,
-      heroEmojiMd,
-      evoEmojiMd,
-      rarity,
-      elixir,
-      cardId,
-    );
-  }
-
-  console.log(
-    `${colorSyncLabel("Clash Royale sync complete:")} ${colorMetric(allEntries.length)} cards processed, ${colorMetric(createdEmojis, "yellow")} emojis created.`,
-  );
-}
 
 function scheduleDailyAtZeroUTC(task) {
   const now = new Date();
@@ -1235,7 +1140,7 @@ async function runStartupSyncSteps() {
     () => syncIzziAbilities(sqlite),
     () => syncIzziItems(sqlite),
     () => syncAnigameCards(sqlite),
-    () => syncClashRoyaleCards(sqlite, existingEmojis),
+
   ];
 
   for (const step of steps) {

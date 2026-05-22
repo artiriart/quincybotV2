@@ -29,28 +29,7 @@
 - utility:
     - implement: upload Quincy db periodically to discord via gzip'ing tables (json/yaml) as backup
 
-- clash royale:
-    - betroyale:
-        - test: Terminating matches
-        - refractors: better canvas (only card emojis + name)
-        - refractors: show avg. Elixir cost of current deck in ephermal
-        - refractors: show latest Card picked in non ephermal in "Status:" section
-        - test: test evo/hero events
-    - speedroyale:
-        - implement:
-            - 5x5 Button rows to select from
-            - everyone can select whatever they want, no restrictions except Row 5
-            - Row 5 Evos/Champs/Heros, everyone can pick 1/round (2 total)
-            - 2-4 player support
-            - 2 rounds with 5x5 cards (can pick 4 cards each)
-            - show final deck with links after both rounds trough
-    - rngroyale:
-        - implement:
-            - 5x Cards each round, only show rarity or elixir
-            - players can pick 1 card each round (random if pick same)
-            - present table with cards that got picked
-            - show final deck with links after all rounds trough
-            - joker peak button once/person/game shows ephermal what cards are on table
+
 
 - GTA:
     - implement:
