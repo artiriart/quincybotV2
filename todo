@@ -10,11 +10,22 @@
     - implement: index 7w7 weapon abilities via reroll Screen indexing
 
 - anigame:
-    - fix: cl/f reminder & fix claim
-    - implement: grab all event series and add to array
+    - implement:
+        - grab all event series and add to array
+        - fshop, cl shop etc wishlist setter via webhooks forwards to DM + 1 day forecast
+        - compare talent + element card stats + market worth via DB
+        - merge show gold cost of each card, and optionally order of their talent+element stats
+        - market sell for lower than top via gold DB option for command giver
+        - crit/evade notif
+    - refactor: add market to index via /mk dex filters: -n wakana,marin,zoro,luffy too
+    - fix: sr/ur emojis on claims not rendering
 
 - karuta:
     - test: visit reminders
+    - implement:
+        - add visit and enhanced drop analysis to Quincy bot project
+            - visit: 3d tilted > 2D Map > Streets Grey > template matching for car/burger emoji
+            - drop: template matching by caching Fonts
 
 - lab:
     - refractor: add emojis to menus e.g. feather, ✨ instead of "First Discovery"
@@ -25,14 +36,14 @@
 
 - dank:
     - fix: weekly bundle box reminders, if mel doesnt add himself
+    - implement:
+        Dank Alert Clone:
+        Essentials:
+            - Merchant Reminder
+            - Happy Hour reminder
+            - Scratch/Gboosts/fish events
+            - Fishing RM
+            - Prestige Calc
 
 - utility:
     - implement: upload Quincy db periodically to discord via gzip'ing tables (json/yaml) as backup
-
-
-
-- GTA:
-    - implement:
-        - casino heist hack trainer
-        - train fingerprint hack
-        - ref: https://www.gtaheistinfo.com/fingerprint-hack-training
