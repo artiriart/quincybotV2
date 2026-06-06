@@ -7,11 +7,21 @@ const {
   SectionBuilder,
   SeparatorBuilder,
   TextDisplayBuilder,
+  ThumbnailBuilder,
 } = require("discord.js");
 const { buttonHandlers } = require("./interactions/button");
 
 const ROUTE_PREFIX = "anigamecmp";
 const ITEMS_PER_PAGE = 5;
+
+function parseEmojiValue(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  const custom = text.match(/^<(a?):([a-zA-Z0-9_]+):(\d+)>$/);
+  if (custom) return { id: custom[3], name: custom[2], animated: custom[1] === "a" };
+  if (text.length <= 8) return { name: text };
+  return null;
+}
 
 function buildCompareCustomId(element, ability, page) {
   return `${ROUTE_PREFIX}:${encodeURIComponent(element)}:${encodeURIComponent(ability)}:${page}`;
@@ -49,7 +59,7 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
     FROM anigame_cards c
     LEFT JOIN anigame_market_prices p ON LOWER(p.name) = LOWER(c.name) AND p.rarity = 'super_rare'
     LEFT JOIN anigame_market_prices p2 ON LOWER(p2.name) = LOWER(c.name) AND p2.rarity = 'ultra_rare'
-    WHERE LOWER(c.element) = LOWER(?) AND LOWER(c.talent) = LOWER(?)
+    WHERE LOWER(c.element) = LOWER(?) AND c.talent LIKE '%' || ? || '%'
     `,
     [element, ability],
     []
@@ -75,11 +85,13 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
   const safePage = Math.min(Math.max(0, page), totalPages - 1);
   const paged = cards.slice(safePage * ITEMS_PER_PAGE, (safePage + 1) * ITEMS_PER_PAGE);
 
+  const trashEmoji = parseEmojiValue(global.db.getFeatherEmojiMarkdown("trash")) || { name: "🗑️" };
+
   const container = new ContainerBuilder()
     .addSectionComponents(
-      new SectionBuilder().addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`## Anigame Comparision`)
-      )
+      new SectionBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Anigame Comparision`))
+        .setButtonAccessory(new ButtonBuilder().setCustomId("utility:delete:null").setStyle(ButtonStyle.Danger).setEmoji(trashEmoji))
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
 
@@ -94,18 +106,14 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
       const hpStr = `HP: \`${c.stats.HP}\`${c.stats.HP === maxHP && maxHP > 0 ? " 🌟" : ""}`;
       const spdStr = `SPD: \`${c.stats.SPD}\`${c.stats.SPD === maxSPD && maxSPD > 0 ? " 🌟" : ""}`;
       
+      const fallbackThumb = "https://cdn.discordapp.com/embed/avatars/0.png";
+      const thumbUrl = /^https?:\/\//i.test(c.card_url) ? c.card_url : fallbackThumb;
+      
       const section = new SectionBuilder().addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
           `**${c.name}**\n${atkStr} | ${defStr} | ${hpStr} | ${spdStr}\n**Total Stats: ${c.total}**\n**Market**: SR: ${c.sr_price || "N/A"} | UR: ${c.ur_price || "N/A"}`
         )
-      );
-
-      if (c.card_url) {
-        section.setThumbnailAccessory(thumb => {
-          thumb.setURL(c.card_url);
-          return thumb;
-        });
-      }
+      ).setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbUrl));
 
       container.addSectionComponents(section);
     }
@@ -113,9 +121,8 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
 
   container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
 
-  const actionRow = new ActionRowBuilder();
   if (totalPages > 1) {
-    actionRow.addComponents(
+    const actionRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(buildCompareCustomId(element, ability, safePage - 1))
         .setStyle(ButtonStyle.Secondary)
@@ -132,16 +139,8 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
         .setLabel("▶️")
         .setDisabled(safePage >= totalPages - 1)
     );
+    container.addActionRowComponents(actionRow);
   }
-
-  actionRow.addComponents(
-    new ButtonBuilder()
-      .setCustomId(`${ROUTE_PREFIX}_delete`)
-      .setStyle(ButtonStyle.Danger)
-      .setLabel("Delete message")
-  );
-
-  container.addActionRowComponents(actionRow);
 
   return {
     content: "",
@@ -151,10 +150,6 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
 }
 
 async function handleCompareButton(interaction) {
-  if (interaction.customId === `${ROUTE_PREFIX}_delete`) {
-    await interaction.message.delete().catch(() => {});
-    return;
-  }
   const parsed = parseCompareCustomId(interaction.customId);
   if (!parsed) return;
 

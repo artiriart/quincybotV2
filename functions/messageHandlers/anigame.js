@@ -27,13 +27,6 @@ const ANIGAME_MARKET_RARITY_MAP = {
   "<a:ultra:1068416715890892861><a:rare:1068416713592414268>": "ultra_rare",
 };
 
-const { buttonHandlers } = require("../interactions/button");
-if (!buttonHandlers.has("anigame_battle_del")) {
-  buttonHandlers.set("anigame_battle_del", async (interaction) => {
-    await interaction.message.delete().catch(() => {});
-  });
-}
-
 function parseEmojiValue(raw) {
   const text = String(raw || "").trim();
   if (!text) return null;
@@ -65,7 +58,7 @@ function normalizeAnigameMarketName(rawName) {
   const text = String(rawName || "").trim();
   if (!text) return "";
   const withoutSuffix = text.replace(/\s+\[(?:Evo|Awaken)[^\]]*\].*$/i, "").trim();
-  return withoutSuffix || text;
+  return withoutSuffix.replace(/<a?:[^:]+:\d+>|⭐|🌟|✨/g, "").trim() || text;
 }
 
 
@@ -436,14 +429,12 @@ async function handleAnigameMessage(message, oldMessage, settings) {
               .addSectionComponents(
                 new SectionBuilder()
                   .addTextDisplayComponents(new TextDisplayBuilder().setContent("### Special Action"))
-                  .setButtonAccessory((button) => button.setCustomId("anigame_battle_del").setStyle(ButtonStyle.Danger).setEmoji(trashEmoji))
+                  .setButtonAccessory(new ButtonBuilder().setCustomId("utility:delete:null").setStyle(ButtonStyle.Danger).setEmoji(trashEmoji))
               );
               
             for (const r of state.processedRounds) {
               container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-              container.addSectionComponents(
-                new SectionBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(r))
-              );
+              container.addTextDisplayComponents(new TextDisplayBuilder().setContent(r));
             }
             
             const payload = { content: `<@${userId}>`, components: [container], flags: MessageFlags.IsComponentsV2 };

@@ -804,29 +804,37 @@ module.exports = {
     const focused = interaction.options.getFocused(true);
 
     if (subcommand === "compare" && focused?.name === "ability") {
-      const query = String(focused.value || "").trim();
-      const rows = query
-        ? global.db.safeQuery(
-            `
-            SELECT DISTINCT talent as name
-            FROM anigame_cards
-            WHERE talent IS NOT NULL AND LOWER(talent) LIKE LOWER(?)
-            ORDER BY talent ASC
-            LIMIT 25
-            `,
-            [`%${query}%`]
-          )
-        : global.db.safeQuery(
-            `
-            SELECT DISTINCT talent as name
-            FROM anigame_cards
-            WHERE talent IS NOT NULL
-            ORDER BY talent ASC
-            LIMIT 25
-            `
-          );
+      const query = String(focused.value || "").trim().toLowerCase();
+      
+      const rows = global.db.safeQuery(
+        `
+        SELECT DISTINCT talent as raw_talent
+        FROM anigame_cards
+        WHERE talent IS NOT NULL
+        `
+      );
+
+      const uniqueTalents = new Set();
+      const results = [];
+      for (const row of rows) {
+        const raw = String(row.raw_talent || "");
+        // Extract talent name from `**Name**`
+        const match = raw.match(/\*\*(.*?)\*\*/);
+        if (match) {
+          const name = match[1].trim();
+          if (!uniqueTalents.has(name)) {
+            uniqueTalents.add(name);
+            if (name.toLowerCase().includes(query)) {
+              results.push(name);
+            }
+          }
+        }
+      }
+
+      results.sort();
+
       await interaction.respond(
-        rows.map((row) => ({ name: String(row.name).slice(0, 100), value: String(row.name).slice(0, 100) }))
+        results.slice(0, 25).map((name) => ({ name: name.slice(0, 100), value: name.slice(0, 100) }))
       );
       return;
     }
