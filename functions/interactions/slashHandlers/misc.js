@@ -45,6 +45,8 @@ const SWS_REMINDER_TOGGLES = [
 
 const DANK_TOGGLES = [
   { key: "dank_cheese_autodelete", label: "Cheese Autodelete" },
+  { key: "dank_daily_merchant_reminder", label: "Daily Merchant Reminder", defaultOn: false },
+  { key: "dank_happy_hour_reminder", label: "Happy Hour Reminder", defaultOn: false },
   {
     key: "dank_optout_all_stat_tracking",
     label: "Opt-out of all stat tracking",

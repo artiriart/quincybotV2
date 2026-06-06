@@ -4,6 +4,10 @@ const {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  ContainerBuilder,
+  SectionBuilder,
+  TextDisplayBuilder,
+  SeparatorBuilder,
 } = require("discord.js");
 const { buttonHandlers } = require("../interactions/button");
 
@@ -139,7 +143,52 @@ async function runReminderPoll() {
   if (reminderPollInFlight) return;
   reminderPollInFlight = true;
   try {
-    const now = Date.now();
+    const now = new Date();
+    const nowMs = now.getTime();
+    
+    const utcHours = now.getUTCHours();
+    const utcMins = now.getUTCMinutes();
+    if ((utcHours === 4 || utcHours === 16) && (utcMins === 0 || (utcMins >= 50 && utcMins <= 52))) {
+      const runId = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}-${utcHours}-${utcMins >= 50 ? 50 : 0}`;
+      if (global.db.getState("dank_happy_hour_last_sent") !== runId) {
+        global.db.upsertState("dank_happy_hour_last_sent", runId);
+        
+        const usersToDM = global.db.safeQuery(
+          "SELECT user_id FROM user_settings_toggles WHERE type = ? AND toggle = 1",
+          ["dank_happy_hour_reminder"]
+        );
+
+        if (usersToDM && usersToDM.length > 0) {
+          let nextHour = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), utcHours + 1, 0, 0);
+          let timestamp = Math.floor(nextHour / 1000);
+
+          const container = new ContainerBuilder()
+            .addTextDisplayComponents(
+              new TextDisplayBuilder().setContent("## Happy Hour Reminder")
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(
+              new TextDisplayBuilder().setContent(`**Happy Hour ongoing, it will end <t:${timestamp}:R>**`)
+            );
+
+          (async () => {
+            for (const row of usersToDM) {
+              try {
+                const userObj = await global.bot.users.fetch(row.user_id).catch(() => null);
+                if (userObj) {
+                  await userObj.send({
+                    components: [container],
+                    flags: MessageFlags.IsComponentsV2,
+                  }).catch(() => {});
+                }
+              } catch (e) {}
+              await new Promise((res) => setTimeout(res, 500));
+            }
+          })();
+        }
+      }
+    }
+
     const dueRows = global.db.safeQuery(
       `
       SELECT type, user_id, guild_id, channel_id, information, end, dm
@@ -148,7 +197,7 @@ async function runReminderPoll() {
       ORDER BY end ASC
       LIMIT 20
       `,
-      [now],
+      [nowMs],
       [],
     );
 
@@ -186,7 +235,7 @@ async function runReminderPoll() {
     }
 
     const untilNext = Number(nextRow.end) - Date.now();
-    scheduleReminderPoll(Math.max(2_000, Math.min(300_000, untilNext)));
+    scheduleReminderPoll(Math.max(2_000, Math.min(60_000, untilNext))); // Cap sleep to 1 min to catch Happy Hour
   } finally {
     reminderPollInFlight = false;
   }

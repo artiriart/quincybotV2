@@ -5,6 +5,7 @@ const {
   ButtonStyle,
   MessageFlags,
   TextDisplayBuilder,
+  SeparatorBuilder,
 } = require("discord.js");
 const {
   extractUserFromMention,
@@ -188,6 +189,190 @@ function parseDankLevelRewardLine(rawLine) {
 }
 
 async function handleDankMessage(message, oldMessage, settings) {
+  if (
+    message?.components?.[0]?.components?.some(
+      (c) => c?.type === 10 && c?.content === "### Traveling Merchant"
+    )
+  ) {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const lastSentDate = global.db.getState("dank_daily_merchant_last_sent");
+
+    if (lastSentDate !== todayStr) {
+      const trades = [];
+      let currentTradeText = null;
+      let currentTradeMax = 0;
+
+      for (const comp of message.components[0].components || []) {
+        if (comp.type === 10 && comp.content?.includes("for your")) {
+          currentTradeText = comp.content;
+        } else if (comp.type === 1 && currentTradeText) {
+          const tradeButton = comp.components?.find((c) =>
+            c.label?.startsWith("Trade (")
+          );
+          if (tradeButton) {
+            const maxMatch = tradeButton.label.match(/Trade \(\d+\/(\d+)\)/);
+            if (maxMatch) {
+              currentTradeMax = Number(maxMatch[1]);
+            }
+          }
+
+          if (currentTradeMax > 0 && currentTradeText) {
+            let newText = currentTradeText.replace(
+              /<a?:[a-zA-Z0-9_]+:\d+>/g,
+              (match, offset, str) => {
+                let after = str.substring(offset + match.length).trim();
+                let itemName = "";
+                for (let i = 0; i < after.length; i++) {
+                  if (after[i] === "*" || after[i] === "\n") break;
+                  itemName += after[i];
+                }
+                itemName = itemName.trim();
+                let dbEmoji = global.db.getDankItemEmojiMarkdown(itemName);
+                return dbEmoji ? dbEmoji : "";
+              }
+            );
+            newText = newText.replace(/\s{2,}/g, " ").trim();
+            newText = newText.replace(/\*\*/g, "");
+
+            trades.push(`[Max. ${currentTradeMax}] ${newText}`);
+          }
+
+          currentTradeText = null;
+          currentTradeMax = 0;
+        }
+      }
+
+      if (trades.length > 0) {
+        global.db.upsertState("dank_daily_merchant_last_sent", todayStr);
+
+        const usersToDMRows = global.db.safeQuery(
+          "SELECT user_id FROM user_settings_toggles WHERE type = ? AND toggle = 1",
+          ["dank_daily_merchant_reminder"]
+        );
+
+        if (usersToDMRows && usersToDMRows.length > 0) {
+          const container = new ContainerBuilder()
+            .addTextDisplayComponents(
+              new TextDisplayBuilder().setContent("## Daily Trader Reminder")
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(
+              new TextDisplayBuilder().setContent(trades.join("\n"))
+            );
+
+          (async () => {
+            for (const row of usersToDMRows) {
+              try {
+                const userObj = await message.client.users.fetch(row.user_id).catch(() => null);
+                if (userObj) {
+                  await userObj.send({
+                    components: [container],
+                    flags: MessageFlags.IsComponentsV2,
+                  }).catch(() => {});
+                }
+              } catch (e) {
+                // Ignore DM errors
+              }
+              await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+          })();
+        }
+      }
+    }
+  }
+
+  if (message?.embeds?.[0]?.title) {
+    console.log("[DEBUG] Title:", message.embeds[0].title);
+  }
+
+  if (
+    message?.embeds?.[0]?.title?.startsWith("Prestige ") &&
+    message.embeds[0].title.endsWith(" Requirements")
+  ) {
+    console.log("[DEBUG] Prestige matched!");
+    const description = message.embeds[0].description || "";
+    const coinMatch = description.match(/⏣\s+([\d,]+)\/([\d,]+)/);
+    const levelMatch = description.match(/\*\*Level Required\*\*\s*\n.*?\s+([\d,]+)\/([\d,]+)/);
+    
+    if (coinMatch && levelMatch) {
+      const currentCoins = Number(coinMatch[1].replaceAll(",", ""));
+      const requiredCoins = Number(coinMatch[2].replaceAll(",", ""));
+      const currentLevel = Number(levelMatch[1].replaceAll(",", ""));
+      const requiredLevel = Number(levelMatch[2].replaceAll(",", ""));
+
+      const coinsNeeded = Math.max(0, requiredCoins - currentCoins);
+      const levelsNeeded = Math.max(0, requiredLevel - currentLevel);
+
+      const container = new ContainerBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent("## Prestige Calculator")
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
+            `### Needed Coins: \`${coinsNeeded.toLocaleString()}\`\n### Needed Levels: \`${levelsNeeded.toLocaleString()}\``
+          )
+        );
+
+      await message.reply({
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+      }).catch(() => {});
+    }
+  }
+
+  let itemName = "unknown";
+  let topBuy = 0;
+  let topSell = 0;
+  let isMarket = false;
+
+  console.log("[DEBUG] Components:", JSON.stringify(message?.components, null, 2));
+
+  for (const comp of message?.components?.[0]?.components || []) {
+    if (comp?.type === 9 && comp?.components?.[0]?.content) {
+      const txt = comp.components[0].content;
+      const match = txt.match(/\*\*(Buying|Selling) ([\d,]+) <.*?> (.*)\*\*/);
+      if (match) {
+        isMarket = true;
+        itemName = match[3].replace(/['\s]/g, "");
+        const valMatch = txt.match(/Value per Unit: ⏣ ([\d,]+)/);
+        if (valMatch) {
+          const val = Number(valMatch[1].replace(/,/g, ""));
+          if (match[1] === "Buying") topBuy = Math.max(topBuy, val);
+          if (match[1] === "Selling") topSell = topSell === 0 ? val : Math.min(topSell, val);
+        }
+      }
+    }
+  }
+
+  if (isMarket) {
+    await message.react("➕").catch(() => {});
+    
+    const filter = (reaction, user) => reaction.emoji.name === "➕" && !user.bot;
+    const collector = message.createReactionCollector({ filter, time: 30000, max: 1 });
+    
+    collector.on("collect", async (reaction, user) => {
+      const container = new ContainerBuilder()
+        .addSectionComponents(
+          new SectionBuilder()
+            .addTextDisplayComponents(
+              new TextDisplayBuilder().setContent("## Market Command Generator")
+            )
+            .setButtonAccessory(
+              new ButtonBuilder()
+                .setLabel("Start")
+                .setStyle(ButtonStyle.Primary)
+                .setCustomId(`dank_market_gen:${itemName}:${topBuy}:${topSell}`)
+            )
+        );
+      
+      await message.reply({
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+      }).catch(() => {});
+    });
+  }
+
   if (
     message?.components?.[0]?.components?.some(
       (c) => c?.type === 10 && c?.content === "### Collection",
