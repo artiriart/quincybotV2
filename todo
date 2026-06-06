@@ -10,11 +10,10 @@
     - implement: index 7w7 weapon abilities via reroll Screen indexing
 
 - anigame:
-    - implement:
-        - grab all event series and add to array
-        - test: fshop, cl shop etc wishlist setter via webhooks forwards to DM + 1 day forecast
-        - market sell for lower than top via gold DB option for command giver
-        - test: crit/evade notif
+    - implement: grab all event series and add to array
+    - test: fshop, cl shop etc wishlist setter via webhooks forwards to DM + 1 day forecast
+    - implement: market sell for lower than top via gold DB option for command giver
+    - test: crit/evade notif
     - fix: sr/ur emojis on claims not rendering
 
 - karuta:
@@ -22,34 +21,24 @@
     - implement:
         - add visit and enhanced drop analysis to Quincy bot project
             - visit: 3d tilted > 2D Map > Streets Grey > template matching for car/burger emoji
-            - drop: template matching by caching Fonts
+            - drop: template matching by caching Fonts, edition via frame accents, sp/mp via length of print field
             - delete: Gemma Support, OCR
+
 
 - lab:
     - refractor: add emojis to menus e.g. feather, ✨ instead of "First Discovery"
 
 - izzi:
-    - refractor
     - implement: better talent lookup + emoji ID inserter for talents from ci
-    - refreactor: after izzi upgrades done adjust to CompV2 support
+    - refractor: after izzi upgrades done adjust to CompV2 support
 
 - dank:
-    - fix: weekly bundle box reminders, if mel doesnt add himself
-    - implement:
-        Dank Alert Clone:
-        Essentials:
-            - Merchant Reminder
-            - Happy Hour reminder
-            - Scratch/Gboosts/fish events
-            - Prestige Calc
-    - implement: Market Assitant:
-        - on market message add reaction
-        - when reacted pop up button pop up ephermal
-        - pre values: top buy/sell info
-        - input price per (deaf best sell - 100k)
-        - input amt
-        - send modal
-        - recieve pls command copypaste for post
+    - fix: weekly bundle box reminders
+    - fix: Merchant Reminder
+    - test: Happy Hour reminder
+    - implement: Scratch/Gboosts/fish events
+    - fix: Prestige Calc
+    - delete: Market Assitant
 
 - utility:
-    - implement: upload Quincy db periodically to discord via gzip'ing tables (json/yaml) as backup
+    - implement: upload Quincy db periodically to discord via gzip'ing tables as (json/yaml) as backup
