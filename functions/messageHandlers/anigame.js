@@ -27,6 +27,22 @@ const ANIGAME_MARKET_RARITY_MAP = {
   "<a:ultra:1068416715890892861><a:rare:1068416713592414268>": "ultra_rare",
 };
 
+const { buttonHandlers } = require("../interactions/button");
+if (!buttonHandlers.has("anigame_battle_del")) {
+  buttonHandlers.set("anigame_battle_del", async (interaction) => {
+    await interaction.message.delete().catch(() => {});
+  });
+}
+
+function parseEmojiValue(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  const custom = text.match(/^<(a?):([a-zA-Z0-9_]+):(\d+)>$/);
+  if (custom) return { id: custom[3], name: custom[2], animated: custom[1] === "a" };
+  if (text.length <= 8) return { name: text };
+  return null;
+}
+
 function collectComponentTexts(node, output = []) {
   if (!node) return output;
   if (Array.isArray(node)) {
@@ -52,56 +68,48 @@ function normalizeAnigameMarketName(rawName) {
   return withoutSuffix || text;
 }
 
-function parseAnigameMarketEntry(content) {
-  const lines = String(content || "")
-    .split("\n")
-    .map((line) => String(line || "").replace(/\u200b/g, "").trim())
-    .filter(Boolean);
-  if (lines.length < 2) return null;
 
-  const firstLine = lines[0];
-  const secondLine = lines[1];
-  const priceMatch = firstLine.match(/^\*\*([\d,]+)\s+Gold\b/i);
-  if (!priceMatch) return null;
 
-  const price = Number.parseInt(priceMatch[1].replaceAll(",", ""), 10);
-  if (!Number.isFinite(price) || price < 0) return null;
-
-  const namePart = firstLine.split("|")?.[1] || "";
-  const name = normalizeAnigameMarketName(namePart);
-  if (!name) return null;
-
-  const raritySegment = String(secondLine.split("|")?.[0] || "").trim();
-  const rarity = Object.entries(ANIGAME_MARKET_RARITY_MAP).find(([emoji]) =>
-    raritySegment.includes(emoji),
-  )?.[1];
-  if (!rarity) return null;
-
-  return { name, price, rarity };
-}
-
-function isAnigameGlobalMarketPageOne(message) {
+function isAnigameMarketDex(message) {
   const texts = collectComponentTexts(message?.components || []);
   const joined = texts.join("\n");
-  return (
-    /global market/i.test(joined) &&
-    /page\s*1\s*\/\s*\d+/i.test(joined)
-  );
+  return /Market Dex/i.test(joined);
 }
 
 function indexAnigameMarketPage(message) {
-  if (!isAnigameGlobalMarketPageOne(message)) return 0;
+  if (!isAnigameMarketDex(message)) return 0;
 
   const texts = collectComponentTexts(message?.components || []);
   const bestByCardRarity = new Map();
 
   for (const text of texts) {
-    const parsed = parseAnigameMarketEntry(text);
-    if (!parsed) continue;
-    const key = `${parsed.name.toLowerCase()}\u0000${parsed.rarity}`;
-    const current = bestByCardRarity.get(key);
-    if (!current || parsed.price < current.price) {
-      bestByCardRarity.set(key, parsed);
+    if (!text.startsWith("## ")) continue;
+    const lines = text.split("\n");
+    if (lines.length < 2) continue;
+
+    const rawName = lines[0].replace("## ", "").trim();
+    const name = normalizeAnigameMarketName(rawName);
+    if (!name) continue;
+
+    const parts = lines[1].split(" | ");
+    for (const part of parts) {
+      if (part.includes("*No listing*")) continue;
+      
+      for (const [emoji, rarity] of Object.entries(ANIGAME_MARKET_RARITY_MAP)) {
+        if (part.includes(emoji)) {
+          const priceMatch = part.match(/([\d,]+)\s+Gold/i);
+          if (priceMatch) {
+            const price = Number.parseInt(priceMatch[1].replace(/,/g, ""), 10);
+            if (Number.isFinite(price) && price >= 0) {
+              const key = `${name.toLowerCase()}\u0000${rarity}`;
+              const current = bestByCardRarity.get(key);
+              if (!current || price < current.price) {
+                bestByCardRarity.set(key, { name, price, rarity });
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -382,6 +390,88 @@ async function handleAnigameMessage(message, oldMessage, settings) {
     return;
   }
 
+  const texts = collectComponentTexts(message?.components || []);
+  const joinedText = texts.join("\n").toLowerCase();
+  const battleTitleMatch = message?.embeds?.[0]?.title?.includes("Battle") || 
+                           joinedText.includes("battle") || 
+                           joinedText.includes("winner:");
+
+  if (battleTitleMatch) {
+    const isOver = joinedText.includes("won the battle!");
+    
+    const specialRounds = texts.filter(t => {
+      const lower = t.toLowerCase();
+      return lower.includes("[round") && (lower.includes("critical hit!") || lower.includes("evade"));
+    });
+
+    if (specialRounds.length > 0 || isOver) {
+      const thumbnailUrl = message?.embeds?.[0]?.thumbnail?.url || texts.find(t => t.includes("cdn.discordapp.com/avatars/"));
+      let userIdMatch = null;
+      if (thumbnailUrl) {
+        userIdMatch = thumbnailUrl.match(/avatars\/(\d+)\//);
+      }
+      
+      if (userIdMatch) {
+        const userId = userIdMatch[1];
+        const notificationsEnabled = settings.getUserToggle(userId, "anigame_crit_evade_notifier", true);
+        
+        if (notificationsEnabled) {
+          const stateKey = `anigame_battle_notif_${message.id}`;
+          const existingStateRaw = global.db.getState(stateKey, userId);
+          let state = existingStateRaw ? JSON.parse(existingStateRaw) : { replyMessageId: null, processedRounds: [] };
+          
+          let newRoundsAdded = false;
+          for (const r of specialRounds) {
+            if (!state.processedRounds.includes(r)) {
+              state.processedRounds.push(r);
+              newRoundsAdded = true;
+            }
+          }
+          
+          if (newRoundsAdded && state.processedRounds.length > 0) {
+            const trashEmoji = parseEmojiValue(global.db.getFeatherEmojiMarkdown("trash")) || { name: "🗑️" };
+            
+            const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+            const container = new ContainerBuilder()
+              .addSectionComponents(
+                new SectionBuilder()
+                  .addTextDisplayComponents(new TextDisplayBuilder().setContent("### Special Action"))
+                  .setButtonAccessory((button) => button.setCustomId("anigame_battle_del").setStyle(ButtonStyle.Danger).setEmoji(trashEmoji))
+              );
+              
+            for (const r of state.processedRounds) {
+              container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+              container.addSectionComponents(
+                new SectionBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(r))
+              );
+            }
+            
+            const payload = { content: `<@${userId}>`, components: [container], flags: MessageFlags.IsComponentsV2 };
+            
+            if (state.replyMessageId) {
+              try {
+                const replyMsg = await message.channel.messages.fetch(state.replyMessageId);
+                if (replyMsg) await replyMsg.edit(payload);
+              } catch (e) {
+                const newReply = await message.reply(payload).catch(() => null);
+                if (newReply) state.replyMessageId = newReply.id;
+              }
+            } else {
+              const newReply = await message.reply(payload).catch(() => null);
+              if (newReply) state.replyMessageId = newReply.id;
+            }
+            
+            global.db.upsertState(stateKey, JSON.stringify(state), userId, false);
+          }
+          
+          if (isOver) {
+            global.db.safeQuery(`DELETE FROM states WHERE type = ? AND id = ?`, [stateKey, userId]);
+          }
+        }
+      }
+    }
+  }
+
   if (message?.embeds?.[0]?.title?.includes("claimed by")) {
     const claimedUsername = message.embeds[0].title.split("__")[1];
     const claimedUser = await findUserByUsername(claimedUsername);
@@ -402,6 +492,86 @@ async function handleAnigameMessage(message, oldMessage, settings) {
   }
 }
 
+async function handleAnigameWebhook(message, settings) {
+  const texts = collectComponentTexts(message?.components || []);
+  const joinedText = texts.join("\n");
+  
+  if (joinedText.includes("Calendar Fragment Shop Update")) {
+    const match = joinedText.match(/Current Card:\*\*\s*(.+)\n\*\*Next Card:\*\*\s*(.+)/i);
+    if (match) {
+      const currentCard = match[1].trim();
+      const nextCard = match[2].trim();
+      await notifyAnigameShopWebhookReminders("fragment_shop", currentCard, false);
+      await notifyAnigameShopWebhookReminders("fragment_shop", nextCard, true);
+    }
+  }
+
+  if (joinedText.includes("Clan Shop Update")) {
+    const urMatch = joinedText.match(/This Weekend's UR:\*\*\s*(.+)\n\*\*Next UR:\*\*\s*(.+)/i);
+    if (urMatch) {
+      await notifyAnigameShopWebhookReminders("clan_shop", urMatch[1].trim(), false, "ultra_rare");
+      await notifyAnigameShopWebhookReminders("clan_shop", urMatch[2].trim(), true, "ultra_rare");
+    }
+    
+    const srMatch = joinedText.match(/Current SR:\*\*\s*(.+)\n\*\*Next SR:\*\*\s*(.+)/i);
+    if (srMatch) {
+      await notifyAnigameShopWebhookReminders("clan_shop", srMatch[1].trim(), false, "super_rare");
+      await notifyAnigameShopWebhookReminders("clan_shop", srMatch[2].trim(), true, "super_rare");
+    }
+  }
+}
+
+async function notifyAnigameShopWebhookReminders(shopType, cardName, isNext, rarityValue = null) {
+  if (!cardName) return;
+  const cardNameLower = cardName.toLowerCase();
+  
+  const reminders = global.db.safeQuery(
+    `
+    SELECT
+      r.user_id,
+      r.card_name,
+      r.rarity,
+      c.base_stats,
+      c.card_url
+    FROM anigame_reminders r
+    LEFT JOIN anigame_cards c
+      ON LOWER(c.name) = LOWER(r.card_name)
+    WHERE r.type = ?
+    `,
+    [shopType],
+    [],
+  );
+
+  const matched = reminders.filter((row) => {
+    if (row.card_name.toLowerCase() !== cardNameLower) return false;
+    if (rarityValue && row.rarity && row.rarity !== rarityValue) return false;
+    return true;
+  });
+
+  const seen = new Set();
+  for (const reminder of matched) {
+    const userId = String(reminder?.user_id || "").trim();
+    if (!userId) continue;
+
+    const dedupeKey = `${userId}:${shopType}:${cardName}:${String(reminder?.rarity || "")}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const user =
+      global.bot.users.cache.get(userId) ||
+      (await global.bot.users.fetch(userId).catch(() => null));
+    if (!user) continue;
+
+    const payload = buildAnigameReminderDmPayload(reminder, shopType);
+    if (isNext) {
+      payload.components[0].components[0].components[0].content = `### A ${shopType === "clan_shop" ? "Clan Shop" : "Fragment Shop"} card from your reminders will be in the shop tomorrow!`;
+    }
+    await user.send(payload).catch(() => {});
+  }
+}
+
 module.exports = {
   handleAnigameMessage,
+  handleAnigameWebhook,
 };
+

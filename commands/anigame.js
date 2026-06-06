@@ -20,6 +20,7 @@ const {
   buildClaimMenuPayload,
   handleClaimMenuButton,
 } = require("../functions/cardClaimPanel");
+const { buildComparePanelPayload } = require("../functions/anigameComparePanel");
 const { parseCompactNumber } = require("../utils/numberParser");
 
 const ROUTE_PREFIX = "anigamerem";
@@ -715,6 +716,35 @@ module.exports = {
             ),
         ),
     )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("compare")
+        .setDescription("Compare anigame cards by element and ability")
+        .addStringOption((option) =>
+          option
+            .setName("element")
+            .setDescription("Element to filter by")
+            .setRequired(true)
+            .addChoices(
+              { name: "Neutral", value: "Neutral" },
+              { name: "Fire", value: "Fire" },
+              { name: "Water", value: "Water" },
+              { name: "Ground", value: "Ground" },
+              { name: "Electric", value: "Electric" },
+              { name: "Grass", value: "Grass" },
+              { name: "Light", value: "Light" },
+              { name: "Dark", value: "Dark" },
+              { name: "Null", value: "Null" },
+            )
+        )
+        .addStringOption((option) =>
+          option
+            .setName("ability")
+            .setDescription("Ability to filter by")
+            .setRequired(true)
+            .setAutocomplete(true)
+        )
+    )
     .addSubcommandGroup((subcommandGroup) =>
       subcommandGroup
         .setName("reminders")
@@ -773,6 +803,34 @@ module.exports = {
     const subcommand = interaction.options.getSubcommand(false);
     const focused = interaction.options.getFocused(true);
 
+    if (subcommand === "compare" && focused?.name === "ability") {
+      const query = String(focused.value || "").trim();
+      const rows = query
+        ? global.db.safeQuery(
+            `
+            SELECT DISTINCT talent as name
+            FROM anigame_cards
+            WHERE talent IS NOT NULL AND LOWER(talent) LIKE LOWER(?)
+            ORDER BY talent ASC
+            LIMIT 25
+            `,
+            [`%${query}%`]
+          )
+        : global.db.safeQuery(
+            `
+            SELECT DISTINCT talent as name
+            FROM anigame_cards
+            WHERE talent IS NOT NULL
+            ORDER BY talent ASC
+            LIMIT 25
+            `
+          );
+      await interaction.respond(
+        rows.map((row) => ({ name: String(row.name).slice(0, 100), value: String(row.name).slice(0, 100) }))
+      );
+      return;
+    }
+
     if (
       subcommandGroup !== "reminders" ||
       subcommand !== "set" ||
@@ -822,6 +880,13 @@ module.exports = {
 
     const subcommandGroup = interaction.options.getSubcommandGroup(false);
     const subcommand = interaction.options.getSubcommand(false);
+
+    if (!subcommandGroup && subcommand === "compare") {
+      const element = interaction.options.getString("element", true);
+      const ability = interaction.options.getString("ability", true);
+      await interaction.reply(buildComparePanelPayload(element, ability, 0, false));
+      return;
+    }
 
     if (!subcommandGroup && subcommand === "claims") {
       await interaction.reply(buildClaimMenuPayload(interaction.user.id, "anigame"));

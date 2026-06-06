@@ -17,7 +17,7 @@
         - merge show gold cost of each card, and optionally order of their talent+element stats
         - market sell for lower than top via gold DB option for command giver
         - crit/evade notif
-    - refactor: add market to index via /mk dex filters: -n wakana,marin,zoro,luffy too
+    - refactor: add market to index via /mk dex filters: -n wakana,marin,zoro,luffy too and index all cards
     - fix: sr/ur emojis on claims not rendering
 
 - karuta:
@@ -26,6 +26,7 @@
         - add visit and enhanced drop analysis to Quincy bot project
             - visit: 3d tilted > 2D Map > Streets Grey > template matching for car/burger emoji
             - drop: template matching by caching Fonts
+            - delete: Gemma Support, OCR
 
 - lab:
     - refractor: add emojis to menus e.g. feather, ✨ instead of "First Discovery"
@@ -33,6 +34,7 @@
 - izzi:
     - implement: crate opening helper / extractor
     - implement: better talent lookup + emoji ID inserter for talents from ci
+    - refreactor: after izzi upgrades done adjust to CompV2 support
 
 - dank:
     - fix: weekly bundle box reminders, if mel doesnt add himself
@@ -44,6 +46,14 @@
             - Scratch/Gboosts/fish events
             - Fishing RM
             - Prestige Calc
+    - implement: Market Assitant:
+        - on market message add reaction
+        - when reacted pop up button pop up ephermal
+        - pre values: top buy/sell info
+        - input price per (deaf best sell - 100k)
+        - input amt
+        - send modal
+        - recieve pls command copypaste for post
 
 - utility:
     - implement: upload Quincy db periodically to discord via gzip'ing tables (json/yaml) as backup
