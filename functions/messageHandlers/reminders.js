@@ -49,6 +49,22 @@ function parseReminderInformation(raw) {
   }
 }
 
+function deleteReminder(type, userId) {
+  global.db.safeQuery(`DELETE FROM reminders WHERE type = ? AND user_id = ?`, [
+    type,
+    userId,
+  ]);
+}
+
+function isTerminalDeliveryError(error) {
+  const code = Number(error?.code || error?.rawError?.code);
+  if (code === 50013) return true;
+
+  const status = Number(error?.status);
+  const message = String(error?.message || error?.rawError?.message || "").toLowerCase();
+  return status === 403 && message.includes("missing permissions");
+}
+
 async function sendDueReminder(row) {
   const userId = String(row?.user_id || "").trim();
   const type = String(row?.type || "").trim();
@@ -126,16 +142,19 @@ async function sendDueReminder(row) {
     const reason = String(error?.message || error || "").toLowerCase();
     if (reason.includes("cannot send messages to this user")) {
       console.warn(`[reminders] DM failed for ${userId}, keeping reminder queued`);
+    } else if (isTerminalDeliveryError(error)) {
+      console.warn(
+        `[reminders] delivery permanently failed for ${type}/${userId}; deleting reminder (${error?.code || error?.rawError?.code || error?.message || "terminal error"})`,
+      );
+      deleteReminder(type, userId);
+      return true;
     } else {
       console.warn(`[reminders] delivery failed for ${type}/${userId}:`, error);
     }
     return false;
   }
 
-  global.db.safeQuery(`DELETE FROM reminders WHERE type = ? AND user_id = ?`, [
-    type,
-    userId,
-  ]);
+  deleteReminder(type, userId);
   return true;
 }
 
