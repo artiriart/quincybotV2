@@ -9,7 +9,6 @@ const { runDankNuke } = require("./nuke");
 const { runDankItemCalc } = require("./itemcalc");
 const { runDankFishMythicals } = require("./fishMythicals");
 const { runDankFishChances } = require("./fishChances");
-require("./marketAssistant");
 
 async function runDank(interaction) {
   if (!interaction?.isChatInputCommand?.()) return;

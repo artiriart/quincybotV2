@@ -52,6 +52,67 @@ function collectComponentText(input, output = []) {
   return output;
 }
 
+function collectComponents(input, output = []) {
+  if (Array.isArray(input)) {
+    for (const entry of input) collectComponents(entry, output);
+    return output;
+  }
+
+  if (!input || typeof input !== "object") return output;
+
+  output.push(input);
+  if (Array.isArray(input.components)) collectComponents(input.components, output);
+  if (Array.isArray(input.items)) collectComponents(input.items, output);
+  if (input.accessory) collectComponents(input.accessory, output);
+
+  return output;
+}
+
+function getComponentText(message) {
+  return collectComponentText(message?.components || []).join("\n");
+}
+
+function getAllCustomIds(message) {
+  return collectComponents(message?.components || [])
+    .map((component) => component?.customId || component?.custom_id)
+    .filter((customId) => typeof customId === "string" && customId.trim());
+}
+
+function extractCollectionUserId(message) {
+  for (const customId of getAllCustomIds(message)) {
+    const match = customId.match(/\|(\d{15,25})(?::|$)/);
+    if (match) return match[1];
+  }
+
+  return (
+    message?.interactionMetadata?.user?.id ||
+    message?.interaction?.user?.id ||
+    null
+  );
+}
+
+function isCollectionBundleBoxPage(message) {
+  const text = getComponentText(message);
+  return (
+    text.includes("### Collection") &&
+    text.includes("Bundle Box") &&
+    text.includes("You can claim rewards once every calendar week.")
+  );
+}
+
+function getCollectionClaimButton(message) {
+  return (
+    collectComponents(message?.components || []).find(
+      (component) =>
+        component?.type === 2 &&
+        component?.label === "Claim" &&
+        /collection-view:claim:rewards/.test(
+          String(component?.customId || component?.custom_id || ""),
+        ),
+    ) || null
+  );
+}
+
 function getMultiplierEmojiMarkdown(multiplierType) {
   const key = String(multiplierType || "")
     .trim()
@@ -196,52 +257,49 @@ async function handleDankMessage(message, oldMessage, settings) {
   ) {
     const todayStr = new Date().toISOString().split("T")[0];
     const lastSentDate = global.db.getState("dank_daily_merchant_last_sent");
+    const trades = [];
+    let currentTradeText = null;
+    let currentTradeMax = 0;
+
+    for (const comp of message.components[0].components || []) {
+      if (comp.type === 10 && comp.content?.includes("for your")) {
+        currentTradeText = comp.content;
+      } else if (comp.type === 1 && currentTradeText) {
+        const tradeButton = comp.components?.find((c) =>
+          c.label?.startsWith("Trade")
+        );
+        if (tradeButton) {
+          const maxMatch = tradeButton.label.match(/Trade \(\d+\/(\d+)\)/);
+          currentTradeMax = maxMatch ? Number(maxMatch[1]) : 1;
+        }
+
+        if (currentTradeMax > 0 && currentTradeText) {
+          let newText = currentTradeText.replace(
+            /<a?:[a-zA-Z0-9_]+:\d+>/g,
+            (match, offset, str) => {
+              let after = str.substring(offset + match.length).trim();
+              let itemName = "";
+              for (let i = 0; i < after.length; i++) {
+                if (after[i] === "*" || after[i] === "\n") break;
+                itemName += after[i];
+              }
+              itemName = itemName.trim();
+              let dbEmoji = global.db.getDankItemEmojiMarkdown(itemName);
+              return dbEmoji ? dbEmoji : "";
+            }
+          );
+          newText = newText.replace(/\s{2,}/g, " ").trim();
+          newText = newText.replace(/\*\*/g, "");
+
+          trades.push(`[Max. ${currentTradeMax}] ${newText}`);
+        }
+
+        currentTradeText = null;
+        currentTradeMax = 0;
+      }
+    }
 
     if (lastSentDate !== todayStr) {
-      const trades = [];
-      let currentTradeText = null;
-      let currentTradeMax = 0;
-
-      for (const comp of message.components[0].components || []) {
-        if (comp.type === 10 && comp.content?.includes("for your")) {
-          currentTradeText = comp.content;
-        } else if (comp.type === 1 && currentTradeText) {
-          const tradeButton = comp.components?.find((c) =>
-            c.label?.startsWith("Trade (")
-          );
-          if (tradeButton) {
-            const maxMatch = tradeButton.label.match(/Trade \(\d+\/(\d+)\)/);
-            if (maxMatch) {
-              currentTradeMax = Number(maxMatch[1]);
-            }
-          }
-
-          if (currentTradeMax > 0 && currentTradeText) {
-            let newText = currentTradeText.replace(
-              /<a?:[a-zA-Z0-9_]+:\d+>/g,
-              (match, offset, str) => {
-                let after = str.substring(offset + match.length).trim();
-                let itemName = "";
-                for (let i = 0; i < after.length; i++) {
-                  if (after[i] === "*" || after[i] === "\n") break;
-                  itemName += after[i];
-                }
-                itemName = itemName.trim();
-                let dbEmoji = global.db.getDankItemEmojiMarkdown(itemName);
-                return dbEmoji ? dbEmoji : "";
-              }
-            );
-            newText = newText.replace(/\s{2,}/g, " ").trim();
-            newText = newText.replace(/\*\*/g, "");
-
-            trades.push(`[Max. ${currentTradeMax}] ${newText}`);
-          }
-
-          currentTradeText = null;
-          currentTradeMax = 0;
-        }
-      }
-
       if (trades.length > 0) {
         global.db.upsertState("dank_daily_merchant_last_sent", todayStr);
 
@@ -281,15 +339,10 @@ async function handleDankMessage(message, oldMessage, settings) {
     }
   }
 
-  if (message?.embeds?.[0]?.title) {
-    console.log("[DEBUG] Title:", message.embeds[0].title);
-  }
-
   if (
     message?.embeds?.[0]?.title?.startsWith("Prestige ") &&
     message.embeds[0].title.endsWith(" Requirements")
   ) {
-    console.log("[DEBUG] Prestige matched!");
     const description = message.embeds[0].description || "";
     const coinMatch = description.match(/⏣\s+([\d,]+)\/([\d,]+)/);
     const levelMatch = description.match(/\*\*Level Required\*\*\s*\n.*?\s+([\d,]+)\/([\d,]+)/);
@@ -321,84 +374,24 @@ async function handleDankMessage(message, oldMessage, settings) {
     }
   }
 
-  let itemName = "unknown";
-  let topBuy = 0;
-  let topSell = 0;
-  let isMarket = false;
-
-  console.log("[DEBUG] Components:", JSON.stringify(message?.components, null, 2));
-
-  for (const comp of message?.components?.[0]?.components || []) {
-    if (comp?.type === 9 && comp?.components?.[0]?.content) {
-      const txt = comp.components[0].content;
-      const match = txt.match(/\*\*(Buying|Selling) ([\d,]+) <.*?> (.*)\*\*/);
-      if (match) {
-        isMarket = true;
-        itemName = match[3].replace(/['\s]/g, "");
-        const valMatch = txt.match(/Value per Unit: ⏣ ([\d,]+)/);
-        if (valMatch) {
-          const val = Number(valMatch[1].replace(/,/g, ""));
-          if (match[1] === "Buying") topBuy = Math.max(topBuy, val);
-          if (match[1] === "Selling") topSell = topSell === 0 ? val : Math.min(topSell, val);
-        }
-      }
-    }
-  }
-
-  if (isMarket) {
-    await message.react("➕").catch(() => {});
-    
-    const filter = (reaction, user) => reaction.emoji.name === "➕" && !user.bot;
-    const collector = message.createReactionCollector({ filter, time: 30000, max: 1 });
-    
-    collector.on("collect", async (reaction, user) => {
-      const container = new ContainerBuilder()
-        .addSectionComponents(
-          new SectionBuilder()
-            .addTextDisplayComponents(
-              new TextDisplayBuilder().setContent("## Market Command Generator")
-            )
-            .setButtonAccessory(
-              new ButtonBuilder()
-                .setLabel("Start")
-                .setStyle(ButtonStyle.Primary)
-                .setCustomId(`dank_market_gen:${itemName}:${topBuy}:${topSell}`)
-            )
-        );
-      
-      await message.reply({
-        components: [container],
-        flags: MessageFlags.IsComponentsV2,
-      }).catch(() => {});
-    });
-  }
-
   if (
-    message?.components?.[0]?.components?.some(
-      (c) => c?.type === 10 && c?.content === "### Collection",
-    ) &&
+    isCollectionBundleBoxPage(oldMessage) &&
+    isCollectionBundleBoxPage(message) &&
     oldMessage
   ) {
-    const getClaimButton = (msg) =>
-      msg?.components?.[0]?.components?.find(
-        (c) => c.type === 9 && c?.accessory?.label === "Claim",
-      )?.accessory || null;
-
-    const oldClaim = getClaimButton(oldMessage);
-    const newClaim = getClaimButton(message);
+    const oldClaim = getCollectionClaimButton(oldMessage);
+    const newClaim = getCollectionClaimButton(message);
+    const userId = extractCollectionUserId(message) || extractCollectionUserId(oldMessage);
 
     if (
       oldClaim &&
       newClaim &&
-      oldClaim.disabled === false &&
+      oldClaim.disabled !== true &&
       newClaim.disabled === true
     ) {
-      const userId =
-        message?.components?.[0]?.components?.[0]?.customId?.split(":")?.[1];
-
-      const user = await resolveDankUser(message);
-      if (!user || !shouldTrackDankStats(settings.getUserToggle, user.id))
+      if (!userId) {
         return;
+      }
 
       const oneWeekinMinutes = 60 * 24 * 7;
       global.db.createReminder(

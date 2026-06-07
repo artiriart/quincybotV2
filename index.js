@@ -118,7 +118,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     }
     handleMessage.startReminderPolling?.();
     readyClient.user?.setPresence({
-      activities: [{ name: "Quincybot V2!!! better ig..." }],
+      activities: [{ name: "Tonight, @thv took a turn in the audience as he watched @gracieabrams and dojacat perform at #VogueWorld: Hollywood." }],
       status: "online",
     });
     console.log(`Logged in as ${readyClient.user.username}.`.rainbow);

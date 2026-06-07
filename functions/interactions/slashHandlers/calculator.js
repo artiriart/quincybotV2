@@ -125,7 +125,7 @@ function buildCalculatorPayload({ attachmentName, solution, raw, compact }) {
         )
         .addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            `**Solution:** ${solution}\n**Raw:** ${raw}\n**Compact:** ${compact}`,
+            `**Solution:** \`${solution}\`\n**Raw:** \`${raw}\`\n**Compact:** \`${compact}\``,
           ),
         ),
     ],
@@ -133,19 +133,16 @@ function buildCalculatorPayload({ attachmentName, solution, raw, compact }) {
   };
 }
 
-async function runCalculator(interaction) {
-  const prompt = interaction.options.getString("prompt", true);
+async function createCalculatorResponse(prompt) {
   const normalizedInput = expandCompactNumbersInExpression(prompt);
 
   let result;
   try {
     result = evaluate(normalizedInput);
   } catch (error) {
-    await interaction.reply({
-      content: `Invalid equation: ${error?.message || "Could not parse input."}`,
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
+    return {
+      error: `Invalid equation: ${error?.message || "Could not parse input."}`,
+    };
   }
 
   const latex = basicCommonLatex(normalizedInput);
@@ -167,28 +164,40 @@ async function runCalculator(interaction) {
   try {
     scaledLatex = await renderLatexToScaledPng(latex);
   } catch (error) {
+    return {
+      error: `Failed to render LaTeX image: ${error?.message || "unknown error"}`,
+    };
+  }
+
+  const attachmentName = "calculator-latex.png";
+
+  return {
+    ...buildCalculatorPayload({
+      attachmentName,
+      solution,
+      raw,
+      compact,
+    }),
+    files: [{ attachment: scaledLatex, name: attachmentName }],
+  };
+}
+
+async function runCalculator(interaction) {
+  const prompt = interaction.options.getString("prompt", true);
+  const response = await createCalculatorResponse(prompt);
+
+  if (response.error) {
     await interaction.reply({
-      content: `Failed to render LaTeX image: ${error?.message || "unknown error"}`,
+      content: response.error,
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  const attachmentName = "calculator-latex.png";
-
-  await interaction.reply(
-    {
-      ...buildCalculatorPayload({
-        attachmentName,
-        solution,
-        raw,
-        compact,
-      }),
-      files: [{ attachment: scaledLatex, name: attachmentName }],
-    },
-  );
+  await interaction.reply(response);
 }
 
 module.exports = {
+  createCalculatorResponse,
   runCalculator,
 };

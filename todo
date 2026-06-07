@@ -33,11 +33,9 @@
     - refractor: after izzi upgrades done adjust to CompV2 support
 
 - dank:
-    - fix: weekly bundle box reminders
     - fix: Merchant Reminder
     - test: Happy Hour reminder
     - implement: Scratch/Gboosts/fish events
-    - fix: Prestige Calc
     - delete: Market Assitant
 
 - utility:
