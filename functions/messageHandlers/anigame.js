@@ -58,6 +58,24 @@ function collectComponentTexts(node, output = []) {
   return output;
 }
 
+function findComponentsByType(node, type, output = []) {
+  if (!node) return output;
+  if (Array.isArray(node)) {
+    for (const item of node) findComponentsByType(item, type, output);
+    return output;
+  }
+  if (node.type === type) {
+    output.push(node);
+  }
+  if (Array.isArray(node.components)) {
+    findComponentsByType(node.components, type, output);
+  }
+  if (node.accessory) {
+    findComponentsByType(node.accessory, type, output);
+  }
+  return output;
+}
+
 function normalizeAnigameMarketName(rawName) {
   const text = String(rawName || "").trim();
   if (!text) return "";
@@ -652,7 +670,69 @@ async function notifyAnigameShopWebhookReminders(shopType, cardName, isNext, rar
   }
 }
 
+async function handleAnigameMentionReply(message, referencedMessage) {
+  const texts = collectComponentTexts(referencedMessage?.components || []);
+  const isInventory = texts.some((t) => t.includes("Inventory"));
+  
+  if (!isInventory) return;
+
+  const dropdowns = findComponentsByType(referencedMessage?.components, 3);
+  const options = dropdowns.flatMap((d) => d.options || []);
+
+  if (options.length === 0) return;
+
+  const results = [];
+  for (const opt of options) {
+    if (!opt.label || !opt.description) continue;
+    
+    // Label format: "#1 | Kenma Kozume"
+    const nameMatch = opt.label.match(/#\d+\s*\|\s*(.+)/);
+    const rawName = nameMatch ? nameMatch[1].trim() : opt.label.trim();
+    
+    // Description format: "Super Rare | Level 50 | ID: 1658616288"
+    const descParts = opt.description.split(" | ");
+    if (descParts.length < 3) continue;
+
+    const rawRarity = descParts[0].trim();
+    const idMatch = descParts.find(p => p.startsWith("ID:"));
+    if (!idMatch) continue;
+
+    const cardId = idMatch.replace("ID:", "").trim();
+    const rarity = rawRarity.toLowerCase().replace(/ /g, "_");
+    
+    const canonicalName = global.db.safeQuery(
+      `SELECT name FROM anigame_cards WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+      [rawName],
+      []
+    )?.[0]?.name || rawName;
+
+    const priceRow = global.db.safeQuery(
+      `SELECT market_average FROM anigame_market_prices WHERE LOWER(name) = LOWER(?) AND rarity = ? LIMIT 1`,
+      [canonicalName, rarity],
+      []
+    )?.[0];
+
+    if (priceRow?.market_average && Number(priceRow.market_average) > 0) {
+      const sellPrice = Math.max(1, Math.floor(Number(priceRow.market_average) - 1));
+      results.push(`* \`mk sell ${cardId} ${sellPrice}\``);
+    }
+  }
+
+  if (results.length > 0) {
+    const container = new ContainerBuilder()
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent("## Recommended sell Commands"))
+      .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent(results.join("\n")));
+
+    await message.reply({
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
+    }).catch(() => {});
+  }
+}
+
 module.exports = {
   handleAnigameMessage,
   handleAnigameWebhook,
+  handleAnigameMentionReply,
 };

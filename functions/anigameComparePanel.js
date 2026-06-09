@@ -155,9 +155,8 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
     }
   }
 
-  container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
   if (totalPages > 1) {
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
     const actionRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(buildCompareCustomId(element, ability, safePage - 1))
