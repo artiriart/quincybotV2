@@ -1044,9 +1044,10 @@ async function syncAnigameCards(sqlite) {
   }
 
   const upsertCard = sqlite.prepare(`
-    INSERT INTO anigame_cards (name, series, talent, element, card_url, base_stats)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO anigame_cards (name, card_id, series, talent, element, card_url, base_stats)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
+      card_id = excluded.card_id,
       series = excluded.series,
       talent = excluded.talent,
       element = excluded.element,
@@ -1055,9 +1056,14 @@ async function syncAnigameCards(sqlite) {
   `);
 
   let count = 0;
-  for (const row of rows) {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
     const name = String(row?.[nameIdx] || "").trim();
     if (!name) continue;
+
+    // card_id is derived from the row position in the sheet:
+    // Row 1 = headers (skipped), Row 2 = card_id 1, Row 3 = card_id 2, etc.
+    const cardId = rowIndex + 1;
 
     const baseStats = JSON.stringify({
       ATK: String(toInt(row?.[atkIdx], 80)),
@@ -1068,6 +1074,7 @@ async function syncAnigameCards(sqlite) {
 
     upsertCard.run(
       name,
+      cardId,
       seriesIdx === -1 ? null : String(row?.[seriesIdx] || "").trim() || null,
       talentIdx === -1 ? null : String(row?.[talentIdx] || "").trim() || null,
       elementIdx === -1 ? null : String(row?.[elementIdx] || "").trim() || null,

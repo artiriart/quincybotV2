@@ -10,6 +10,7 @@ const {
   ThumbnailBuilder,
 } = require("discord.js");
 const { buttonHandlers } = require("./interactions/button");
+const { getAnigameShopCardLabel } = require("../utils/anigameShopMarks");
 
 const ROUTE_PREFIX = "anigamecmp";
 const ITEMS_PER_PAGE = 5;
@@ -55,7 +56,7 @@ function parseBaseStats(rawStats) {
 function buildComparePanelPayload(element, ability, page = 0, ephemeral = false) {
   const rows = global.db.safeQuery(
     `
-    SELECT c.name, c.base_stats, c.card_url, p.market_average as sr_price, p2.market_average as ur_price
+    SELECT c.name, c.series, c.base_stats, c.card_url, p.market_average as sr_price, p2.market_average as ur_price
     FROM anigame_cards c
     LEFT JOIN anigame_market_prices p ON LOWER(p.name) = LOWER(c.name) AND p.rarity = 'super_rare'
     LEFT JOIN anigame_market_prices p2 ON LOWER(p2.name) = LOWER(c.name) AND p2.rarity = 'ultra_rare'
@@ -108,10 +109,12 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
       
       const fallbackThumb = "https://cdn.discordapp.com/embed/avatars/0.png";
       const thumbUrl = /^https?:\/\//i.test(c.card_url) ? c.card_url : fallbackThumb;
+      const markerLabel = getAnigameShopCardLabel(c);
+      const nameLine = `**${c.name}**${markerLabel ? ` [${markerLabel}]` : ""}`;
       
       const section = new SectionBuilder().addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `**${c.name}**\n${atkStr} | ${defStr} | ${hpStr} | ${spdStr}\n**Total Stats: ${c.total}**\n**Market**: SR: ${c.sr_price || "N/A"} | UR: ${c.ur_price || "N/A"}`
+          `${nameLine}\n${atkStr} | ${defStr} | ${hpStr} | ${spdStr}\n**Total Stats: ${c.total}**\n**Market**: SR: ${c.sr_price || "N/A"} | UR: ${c.ur_price || "N/A"}`
         )
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbUrl));
 

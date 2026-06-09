@@ -11,6 +11,10 @@ const {
   findUserByUsername,
   upsertCardClaim,
 } = require("../handleMessageHelpers");
+const {
+  addCalendarFragmentShopCard,
+  addClanShopSeriesForCard,
+} = require("../../utils/anigameShopMarks");
 
 const anigame_emoji_map = {
   "<:common:1068421015509684224>": "Common",
@@ -492,6 +496,8 @@ async function handleAnigameWebhook(message, settings) {
     if (match) {
       const currentCard = match[1].trim();
       const nextCard = match[2].trim();
+      addCalendarFragmentShopCard(currentCard);
+      addCalendarFragmentShopCard(nextCard);
       await notifyAnigameShopWebhookReminders("fragment_shop", currentCard, false);
       await notifyAnigameShopWebhookReminders("fragment_shop", nextCard, true);
     }
@@ -500,14 +506,22 @@ async function handleAnigameWebhook(message, settings) {
   if (joinedText.includes("Clan Shop Update")) {
     const urMatch = joinedText.match(/This Weekend's UR:\*\*\s*(.+)\n\*\*Next UR:\*\*\s*(.+)/i);
     if (urMatch) {
-      await notifyAnigameShopWebhookReminders("clan_shop", urMatch[1].trim(), false, "ultra_rare");
-      await notifyAnigameShopWebhookReminders("clan_shop", urMatch[2].trim(), true, "ultra_rare");
+      const currentUr = urMatch[1].trim();
+      const nextUr = urMatch[2].trim();
+      addClanShopSeriesForCard(currentUr);
+      addClanShopSeriesForCard(nextUr);
+      await notifyAnigameShopWebhookReminders("clan_shop", currentUr, false, "ultra_rare");
+      await notifyAnigameShopWebhookReminders("clan_shop", nextUr, true, "ultra_rare");
     }
     
     const srMatch = joinedText.match(/Current SR:\*\*\s*(.+)\n\*\*Next SR:\*\*\s*(.+)/i);
     if (srMatch) {
-      await notifyAnigameShopWebhookReminders("clan_shop", srMatch[1].trim(), false, "super_rare");
-      await notifyAnigameShopWebhookReminders("clan_shop", srMatch[2].trim(), true, "super_rare");
+      const currentSr = srMatch[1].trim();
+      const nextSr = srMatch[2].trim();
+      addClanShopSeriesForCard(currentSr);
+      addClanShopSeriesForCard(nextSr);
+      await notifyAnigameShopWebhookReminders("clan_shop", currentSr, false, "super_rare");
+      await notifyAnigameShopWebhookReminders("clan_shop", nextSr, true, "super_rare");
     }
   }
 }
@@ -565,4 +579,3 @@ module.exports = {
   handleAnigameMessage,
   handleAnigameWebhook,
 };
-

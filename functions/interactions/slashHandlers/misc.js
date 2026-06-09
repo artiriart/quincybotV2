@@ -52,6 +52,7 @@ const DANK_TOGGLES = [
     label: "Opt-out of all stat tracking",
     defaultOn: false,
   },
+  { key: "dank_prestige_excess_detection", label: "Prestige Calculator" },
 ];
 
 const KARUTA_TOGGLES = [

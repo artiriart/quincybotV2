@@ -22,6 +22,7 @@ const {
 } = require("../functions/cardClaimPanel");
 const { buildComparePanelPayload } = require("../functions/anigameComparePanel");
 const { parseCompactNumber } = require("../utils/numberParser");
+const { getAnigameRaidlistExclusions } = require("../utils/anigameShopMarks");
 
 const ROUTE_PREFIX = "anigamerem";
 const ITEMS_PER_PAGE = 5;
@@ -29,9 +30,9 @@ const CARD_NAME_INPUT_ID = "card_name";
 const RARITY_INPUT_ID = "rarity";
 const DEFAULT_RAIDLIST_COST = 200_000;
 const ANIGAME_RAIDLIST_RARITIES = "r,sr,ur";
-const ANIGAME_RAIDLIST_PREFIX = `.rd lobbies -r ${ANIGAME_RAIDLIST_RARITIES} -n `;
+const ANIGAME_RAIDLIST_PREFIX = ".rd lobbies -aid ";
+const ANIGAME_RAIDLIST_SUFFIX = ` -d i -r ${ANIGAME_RAIDLIST_RARITIES}`;
 const RAIDLIST_DESCRIPTION_LIMIT = 4096;
-const ANIGAME_EVENT_ONLY_SERIES = ["Dandadan"];
 
 const REMINDER_TYPES = {
   fragment_shop: {
@@ -200,23 +201,23 @@ function normalizeRaidlistCost(raw) {
   return parsed;
 }
 
-function buildRaidlistDescription(prefix, names) {
-  let description = prefix;
+function buildRaidlistDescription(prefix, suffix, cardIds) {
+  let ids = "";
   let included = 0;
 
-  for (const rawName of names || []) {
-    const name = String(rawName || "").trim();
-    if (!name) continue;
+  for (const rawCardId of cardIds || []) {
+    const cardId = String(rawCardId || "").trim();
+    if (!cardId) continue;
 
-    const candidate =
-      included === 0 ? `${description}${name}` : `${description},${name}`;
+    const candidateIds = included === 0 ? cardId : `${ids},${cardId}`;
+    const candidate = `${prefix}${candidateIds}${suffix}`;
     if (candidate.length > RAIDLIST_DESCRIPTION_LIMIT) break;
 
-    description = candidate;
+    ids = candidateIds;
     included += 1;
   }
 
-  return { description, included };
+  return { description: `${prefix}${ids}${suffix}`, included };
 }
 
 function formatCoins(value) {
@@ -944,22 +945,44 @@ module.exports = {
         return;
       }
 
+      const markerExclusions = getAnigameRaidlistExclusions();
+      const excludedSeries = (markerExclusions.series || [])
+        .map((series) => String(series || "").trim().toLowerCase())
+        .filter(Boolean);
+      const excludedCards = (markerExclusions.cards || [])
+        .map((name) => String(name || "").trim().toLowerCase())
+        .filter(Boolean);
+      const raidlistConditions = [
+        "LOWER(COALESCE(p.rarity, '')) = LOWER(?)",
+        "COALESCE(p.market_average, 0) >= ?",
+        "c.card_id IS NOT NULL",
+      ];
+      const raidlistParams = [rarity, minCost];
+
+      if (excludedSeries.length) {
+        raidlistConditions.push(
+          `LOWER(COALESCE(c.series, '')) NOT IN (${excludedSeries.map(() => "?").join(",")})`,
+        );
+        raidlistParams.push(...excludedSeries);
+      }
+
+      if (excludedCards.length) {
+        raidlistConditions.push(
+          `LOWER(COALESCE(p.name, '')) NOT IN (${excludedCards.map(() => "?").join(",")})`,
+        );
+        raidlistParams.push(...excludedCards);
+      }
+
       const rows = global.db.safeQuery(
         `
-        SELECT p.name, p.market_average, p.rarity
+        SELECT p.name, c.card_id, p.market_average, p.rarity
         FROM anigame_market_prices p
         LEFT JOIN anigame_cards c
           ON LOWER(c.name) = LOWER(p.name)
-        WHERE LOWER(COALESCE(p.rarity, '')) = LOWER(?)
-          AND COALESCE(p.market_average, 0) >= ?
-          AND LOWER(COALESCE(c.series, '')) NOT IN (${ANIGAME_EVENT_ONLY_SERIES.map(() => "?").join(",")})
+        WHERE ${raidlistConditions.join("\n          AND ")}
         ORDER BY p.market_average DESC, LOWER(p.name) ASC
         `,
-        [
-          rarity,
-          minCost,
-          ...ANIGAME_EVENT_ONLY_SERIES.map((series) => series.toLowerCase()),
-        ],
+        raidlistParams,
         [],
       );
 
@@ -979,7 +1002,8 @@ module.exports = {
 
       const { description, included } = buildRaidlistDescription(
         ANIGAME_RAIDLIST_PREFIX,
-        rows.map((row) => row.name),
+        ANIGAME_RAIDLIST_SUFFIX,
+        rows.map((row) => row.card_id),
       );
 
       const embed = new EmbedBuilder()

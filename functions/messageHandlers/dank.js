@@ -343,6 +343,14 @@ async function handleDankMessage(message, oldMessage, settings) {
     message?.embeds?.[0]?.title?.startsWith("Prestige ") &&
     message.embeds[0].title.endsWith(" Requirements")
   ) {
+    const user = await resolveDankUser(message);
+    const userId = user?.id || null;
+
+    const enabled = userId
+      ? settings.getUserToggle(userId, "dank_prestige_excess_detection", true)
+      : true;
+    if (!enabled) return;
+
     const description = message.embeds[0].description || "";
     const coinMatch = description.match(/⏣\s+([\d,]+)\/([\d,]+)/);
     const levelMatch = description.match(/\*\*Level Required\*\*\s*\n.*?\s+([\d,]+)\/([\d,]+)/);
@@ -353,8 +361,23 @@ async function handleDankMessage(message, oldMessage, settings) {
       const currentLevel = Number(levelMatch[1].replaceAll(",", ""));
       const requiredLevel = Number(levelMatch[2].replaceAll(",", ""));
 
-      const coinsNeeded = Math.max(0, requiredCoins - currentCoins);
-      const levelsNeeded = Math.max(0, requiredLevel - currentLevel);
+      const lines = [];
+
+      if (currentCoins >= requiredCoins) {
+        const excessCoins = currentCoins - requiredCoins;
+        lines.push(`## Excess Coins: \`${excessCoins.toLocaleString()}\``);
+      } else {
+        const coinsNeeded = requiredCoins - currentCoins;
+        lines.push(`### Needed Coins: \`${coinsNeeded.toLocaleString()}\``);
+      }
+
+      if (currentLevel >= requiredLevel) {
+        const excessLevels = currentLevel - requiredLevel;
+        lines.push(`## Excess Levels: \`${excessLevels.toLocaleString()}\``);
+      } else {
+        const levelsNeeded = requiredLevel - currentLevel;
+        lines.push(`### Needed Levels: \`${levelsNeeded.toLocaleString()}\``);
+      }
 
       const container = new ContainerBuilder()
         .addTextDisplayComponents(
@@ -362,9 +385,7 @@ async function handleDankMessage(message, oldMessage, settings) {
         )
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(
-            `### Needed Coins: \`${coinsNeeded.toLocaleString()}\`\n### Needed Levels: \`${levelsNeeded.toLocaleString()}\``
-          )
+          new TextDisplayBuilder().setContent(lines.join("\n"))
         );
 
       await message.reply({

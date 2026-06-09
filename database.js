@@ -130,6 +130,7 @@ const schema = {
   },
   anigame_cards: {
     name: "TEXT PRIMARY KEY",
+    card_id: "INTEGER DEFAULT NULL",
     series: "TEXT DEFAULT NULL",
     talent: "TEXT DEFAULT NULL",
     element: "TEXT DEFAULT NULL",
