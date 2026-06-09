@@ -156,7 +156,8 @@ function parseAnigameBaseStats(rawStats) {
 function getAnigameRarityEmoji(rarityValue) {
   const key = String(rarityValue || "")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/ /g, "_");
   if (key === "common")
     return global.db.getFeatherEmojiMarkdown("anigame_common") || "";
   if (key === "uncommon") {
@@ -464,6 +465,82 @@ async function handleAnigameMessage(message, oldMessage, settings) {
           }
         }
       }
+    }
+  }
+
+  const sacrificesText = texts.find((t) => t.includes("**Sacrifices 🔥**"));
+  if (sacrificesText && !oldMessage) {
+    const lines = sacrificesText.split("\n");
+    const uniqueSacrifices = new Map();
+
+    for (const line of lines) {
+      if (line.includes("**Sacrifices 🔥**")) continue;
+
+      const emojiMatch = line.match(/^((?:<a?:[^:]+:\d+>)+)/);
+      const emojis = emojiMatch ? emojiMatch[1] : "";
+
+      let nameStr = line;
+      if (emojis) nameStr = nameStr.slice(emojis.length).trim();
+
+      const levelIdx = nameStr.indexOf(" Level ");
+      if (levelIdx !== -1) {
+        nameStr = nameStr.slice(0, levelIdx).trim();
+      } else {
+        const idMatch = nameStr.match(/ \(ID: \d+\)$/);
+        if (idMatch) {
+          nameStr = nameStr.slice(0, idMatch.index).trim();
+        }
+      }
+
+      if (!nameStr) continue;
+
+      const rarity = ANIGAME_MARKET_RARITY_MAP[emojis] || "";
+      const key = `${nameStr}\u0000${rarity}`;
+      if (!uniqueSacrifices.has(key)) {
+        uniqueSacrifices.set(key, { name: nameStr, emojis, rarity });
+      }
+    }
+
+    if (uniqueSacrifices.size > 0) {
+      const results = [];
+      for (const s of uniqueSacrifices.values()) {
+        const canonicalName =
+          global.db.safeQuery(
+            `SELECT name FROM anigame_cards WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+            [s.name],
+            [],
+          )?.[0]?.name || s.name;
+
+        let priceText = "N/A";
+        if (s.rarity) {
+          const priceRow = global.db.safeQuery(
+            `SELECT market_average FROM anigame_market_prices WHERE LOWER(name) = LOWER(?) AND rarity = ? LIMIT 1`,
+            [canonicalName, s.rarity],
+            [],
+          )?.[0];
+          if (priceRow?.market_average) {
+            priceText = Number(priceRow.market_average).toLocaleString("en-US");
+          }
+        }
+
+        const ownEmoji = getAnigameRarityEmoji(s.rarity) || s.emojis;
+        results.push(`* **${priceText}** - ${ownEmoji} ${canonicalName}`);
+      }
+
+      const container = new ContainerBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent("## Merge Cost"),
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(results.join("\n")),
+        );
+
+      await message.reply({
+        content: "",
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+      }).catch(() => {});
     }
   }
 

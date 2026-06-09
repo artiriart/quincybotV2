@@ -33,7 +33,7 @@ function applyButtonEmoji(button, emoji) {
 }
 
 function getAnigameRarityEmoji(rarityValue) {
-  const key = String(rarityValue || "").trim().toLowerCase();
+  const key = String(rarityValue || "").trim().toLowerCase().replace(/ /g, "_");
   if (key === "common") return global.db.getFeatherEmojiMarkdown("anigame_common") || "";
   if (key === "uncommon") {
     return [

@@ -53,6 +53,37 @@ function parseBaseStats(rawStats) {
   }
 }
 
+function getAnigameRarityEmoji(rarityValue) {
+  const key = String(rarityValue || "").trim().toLowerCase().replace(/ /g, "_");
+  if (key === "common") return global.db.getFeatherEmojiMarkdown("anigame_common") || "";
+  if (key === "uncommon") {
+    return [
+      global.db.getFeatherEmojiMarkdown("anigame_uncommon_1") || "",
+      global.db.getFeatherEmojiMarkdown("anigame_uncommon_2") || "",
+    ]
+      .filter(Boolean)
+      .join("");
+  }
+  if (key === "rare") return global.db.getFeatherEmojiMarkdown("anigame_rare_1") || "";
+  if (key === "super_rare") {
+    return [
+      global.db.getFeatherEmojiMarkdown("anigame_super_rare_1") || "",
+      global.db.getFeatherEmojiMarkdown("anigame_super_rare_2") || "",
+    ]
+      .filter(Boolean)
+      .join("");
+  }
+  if (key === "ultra_rare") {
+    return [
+      global.db.getFeatherEmojiMarkdown("anigame_ultra_rare_1") || "",
+      global.db.getFeatherEmojiMarkdown("anigame_ultra_rare_2") || "",
+    ]
+      .filter(Boolean)
+      .join("");
+  }
+  return "";
+}
+
 function buildComparePanelPayload(element, ability, page = 0, ephemeral = false) {
   const rows = global.db.safeQuery(
     `
@@ -112,9 +143,11 @@ function buildComparePanelPayload(element, ability, page = 0, ephemeral = false)
       const markerLabel = getAnigameShopCardLabel(c);
       const nameLine = `**${c.name}**${markerLabel ? ` [${markerLabel}]` : ""}`;
       
+      const srEmoji = getAnigameRarityEmoji("super_rare") || "SR:";
+      const urEmoji = getAnigameRarityEmoji("ultra_rare") || "UR:";
       const section = new SectionBuilder().addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `${nameLine}\n${atkStr} | ${defStr} | ${hpStr} | ${spdStr}\n**Total Stats: ${c.total}**\n**Market**: SR: ${c.sr_price || "N/A"} | UR: ${c.ur_price || "N/A"}`
+          `${nameLine}\n${atkStr} | ${defStr} | ${hpStr} | ${spdStr}\n**Total Stats: ${c.total}**\n**Market**: ${srEmoji} ${c.sr_price || "N/A"} | ${urEmoji} ${c.ur_price || "N/A"}`
         )
       ).setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbUrl));
 
