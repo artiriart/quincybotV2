@@ -74,6 +74,27 @@ function getExpectedTokens(cId, postData) {
   return (uniqueChromaChance * 2 + hqChance * 3 + normalChance * 1) / 100;
 }
 
+// Returns expected coin value per catch factoring in variant multipliers.
+// HQ = basePrice × 2, Chroma = basePrice × 4, Unique = basePrice × 5
+function getExpectedValue(cId, basePrice, postData) {
+  const variants = postData?.variants?.[cId] || [];
+  let chromaChance = 0;
+  let uniqueChance = 0;
+  let hqChance = 0;
+  for (const v of variants) {
+    if (v.type === "chroma") chromaChance += Number(v.chance || 0);
+    else if (v.type === "unique") uniqueChance += Number(v.chance || 0);
+    else if (v.type === "high quality") hqChance += Number(v.chance || 0);
+  }
+  const normalChance = Math.max(0, 100 - chromaChance - uniqueChance - hqChance);
+  return (
+    (normalChance * basePrice +
+      hqChance * basePrice * 2 +
+      uniqueChance * basePrice * 5 +
+      chromaChance * basePrice * 4) / 100
+  );
+}
+
 // State keyed by message ID
 const calcStateCache = new Map();
 
@@ -161,13 +182,13 @@ async function buildCalcPayload(state) {
 
         if (isMythic) {
           if (enabledMythical === cId) {
-            const price = getFishPrice(cId, true);
-            hourCoins += expectedCatches * price;
+            const basePrice = getFishPrice(cId, true);
+            hourCoins += expectedCatches * getExpectedValue(cId, basePrice, postData);
             hourBossesCaught.set(cId, (hourBossesCaught.get(cId) || 0) + expectedCatches);
           }
         } else if (isB) {
-          const price = getFishPrice(cId, false);
-          hourCoins += expectedCatches * price;
+          const basePrice = getFishPrice(cId, false);
+          hourCoins += expectedCatches * getExpectedValue(cId, basePrice, postData);
           hourBossesCaught.set(cId, (hourBossesCaught.get(cId) || 0) + expectedCatches);
           bossSet.add(cId);
         }
