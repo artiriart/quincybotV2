@@ -1135,12 +1135,6 @@ async function runStartupSyncSteps() {
 
   const steps = [
     () => syncDankItemsAndEmojis(sqlite, existingEmojis),
-    async () => {
-      const {
-        ensureStartupMythicalChancesIndex,
-      } = require("./dank/fishSimulator");
-      await ensureStartupMythicalChancesIndex({ onlyIfMissing: true });
-    },
     () => syncFeatherEmojis(sqlite, existingEmojis),
     () => syncDecoEmojis(sqlite, existingEmojis),
     () => syncIzziCards(sqlite),

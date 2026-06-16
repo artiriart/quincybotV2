@@ -11,9 +11,7 @@
 - anigame:
     - test: Find out which Cards/Series are Event only -> ignore for raidlist
     - test: fshop, cl shop etc wishlist setter via webhooks forwards to DM + 1 day forecast
-    - implement: market sell for lower than top via gold DB option for command giver
     - fix: crit/evade notif
-    - fix: sr/ur emojis on claims not rendering
 
 - karuta:
     - test: visit reminders
@@ -32,8 +30,7 @@
     - refractor: after izzi upgrades done adjust to CompV2 support
     - implement: rarity emojis for stat command
 
-- dank:
-    - test: Happy Hour reminder
+- dank: 
     - implement: Scratch/Gboosts/fish events
 
 - utility:

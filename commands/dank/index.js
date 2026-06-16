@@ -7,8 +7,7 @@ const {
 } = require("./multipliers");
 const { runDankNuke } = require("./nuke");
 const { runDankItemCalc } = require("./itemcalc");
-const { runDankFishMythicals } = require("./fishMythicals");
-const { runDankFishChances } = require("./fishChances");
+const { runDankCalcLocation } = require("./calcLocation");
 
 async function runDank(interaction) {
   if (!interaction?.isChatInputCommand?.()) return;
@@ -31,15 +30,11 @@ async function runDank(interaction) {
     return;
   }
 
-  if (subcommandGroup === "fish" && subcommand === "mythicals") {
-    await runDankFishMythicals(interaction);
+  if (subcommandGroup === "fish" && subcommand === "calc-location") {
+    await runDankCalcLocation(interaction);
     return;
   }
 
-  if (subcommandGroup === "fish" && subcommand === "chances") {
-    await runDankFishChances(interaction);
-    return;
-  }
 
   if (subcommandGroup === "multiplier" && subcommand === "edit") {
     const type = interaction.options.getString("type", true).toLowerCase();
@@ -168,14 +163,18 @@ module.exports = {
         .setDescription("Fish helper commands")
         .addSubcommand((subcommand) =>
           subcommand
-            .setName("mythicals")
-            .setDescription("Mythical fish hunter helper"),
+            .setName("calc-location")
+            .setDescription("Calculates your location output over the next 9 hours")
+            .addStringOption((option) =>
+              option.setName("location").setDescription("Location ID").setRequired(false)
+            )
+            .addStringOption((option) =>
+              option.setName("tool").setDescription("Tool ID").setRequired(false)
+            )
+            .addStringOption((option) =>
+              option.setName("bait").setDescription("Bait ID").setRequired(false)
+            )
         )
-        .addSubcommand((subcommand) =>
-          subcommand
-            .setName("chances")
-            .setDescription("Show current fishing chances from live simulator"),
-        ),
     )
     .addSubcommand((subcommand) =>
       subcommand
