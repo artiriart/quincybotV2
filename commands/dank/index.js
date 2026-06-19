@@ -7,7 +7,11 @@ const {
 } = require("./multipliers");
 const { runDankNuke } = require("./nuke");
 const { runDankItemCalc } = require("./itemcalc");
-const { runDankCalcLocation } = require("./calcLocation");
+const {
+  runDankFishAutocomplete,
+  runDankFishCatchInfo,
+  runDankFishInfo,
+} = require("./fish");
 
 async function runDank(interaction) {
   if (!interaction?.isChatInputCommand?.()) return;
@@ -30,8 +34,13 @@ async function runDank(interaction) {
     return;
   }
 
-  if (subcommandGroup === "fish" && subcommand === "calc-location") {
-    await runDankCalcLocation(interaction);
+  if (subcommandGroup === "fish" && subcommand === "catch-info") {
+    await runDankFishCatchInfo(interaction);
+    return;
+  }
+
+  if (subcommandGroup === "fish" && subcommand === "info") {
+    await runDankFishInfo(interaction);
     return;
   }
 
@@ -163,16 +172,33 @@ module.exports = {
         .setDescription("Fish helper commands")
         .addSubcommand((subcommand) =>
           subcommand
-            .setName("calc-location")
-            .setDescription("Calculates your location output over the next 9 hours")
+            .setName("catch-info")
+            .setDescription("Look up hourly catch chances for a fish at a location")
             .addStringOption((option) =>
-              option.setName("location").setDescription("Location ID").setRequired(false)
+              option
+                .setName("fish")
+                .setDescription("Fish")
+                .setRequired(true)
+                .setAutocomplete(true)
             )
             .addStringOption((option) =>
-              option.setName("tool").setDescription("Tool ID").setRequired(false)
+              option
+                .setName("location")
+                .setDescription("Location")
+                .setRequired(true)
+                .setAutocomplete(true)
             )
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("info")
+            .setDescription("Show fish details")
             .addStringOption((option) =>
-              option.setName("bait").setDescription("Bait ID").setRequired(false)
+              option
+                .setName("fish")
+                .setDescription("Fish")
+                .setRequired(true)
+                .setAutocomplete(true)
             )
         )
     )
@@ -183,5 +209,11 @@ module.exports = {
     ),
   async execute(interaction) {
     await runDank(interaction);
+  },
+  async autocomplete(interaction) {
+    const subcommandGroup = interaction.options.getSubcommandGroup(false);
+    if (subcommandGroup === "fish") {
+      await runDankFishAutocomplete(interaction);
+    }
   },
 };

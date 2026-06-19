@@ -24,7 +24,6 @@ const DEFAULT_TOOLS = [
   "bare-hand",
   "fishing-bow",
   "magnet-fishing-rope",
-  "idle-fishing-machine",
 ];
 
 function toTitleFromId(value) {
@@ -229,7 +228,9 @@ async function getLocationsAndTools() {
   ]);
 
   const locations = locationRows.map((r) => String(r.entity_id)).filter(Boolean);
-  const tools = toolRows.map((r) => String(r.entity_id)).filter(Boolean);
+  const tools = toolRows
+    .map((r) => String(r.entity_id))
+    .filter((toolId) => toolId && toolId !== "idle-fishing-machine");
 
   return {
     locations: locations.length ? locations : DEFAULT_LOCATIONS,
