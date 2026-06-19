@@ -740,6 +740,7 @@ function buildLabMenuButtons(userId, canCombine, disabled = false) {
       new ButtonBuilder()
         .setCustomId(`${ROUTE_PREFIX}:list:${userId}:discoveries:0`)
         .setStyle(ButtonStyle.Primary)
+        .setEmoji("✨")
         .setLabel("My Discoveries")
         .setDisabled(disabled),
     ),
@@ -826,7 +827,7 @@ function buildLabListPayload(userId, type, page = 0, options = {}) {
     ? pageRows.map((row) => {
         const discoveryTag =
           type === "discoveries" || String(row?.first_discoverer_id || "") === String(userId)
-            ? " - `First Discovery`"
+            ? " ✨"
             : "";
         return `* **${row?.name || "Unknown"}**${discoveryTag}`;
       })

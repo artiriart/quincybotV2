@@ -181,14 +181,13 @@ async function runReminderPoll() {
           let nextHour = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), utcHours + 1, 0, 0);
           let timestamp = Math.floor(nextHour / 1000);
 
-          const container = new ContainerBuilder()
-            .addTextDisplayComponents(
-              new TextDisplayBuilder().setContent("## Happy Hour Reminder")
-            )
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(
-              new TextDisplayBuilder().setContent(`**Happy Hour ongoing, it will end <t:${timestamp}:R>**`)
-            );
+          const trendingUpEmoji =
+            global.db.getFeatherEmojiMarkdown("trending-up") ||
+            global.db.getFeatherEmojiMarkdown("trending_up") ||
+            "📈";
+          const embed = new EmbedBuilder().setDescription(
+            `## ${trendingUpEmoji}Happy Hour ends <t:${timestamp}:R> (<t:${timestamp}:t>)`
+          );
 
           (async () => {
             for (const row of usersToDM) {
@@ -196,8 +195,8 @@ async function runReminderPoll() {
                 const userObj = await global.bot.users.fetch(row.user_id).catch(() => null);
                 if (userObj) {
                   await userObj.send({
-                    components: [container],
-                    flags: MessageFlags.IsComponentsV2,
+                    content: "-# Happy Hour Reminder",
+                    embeds: [embed],
                   }).catch(() => {});
                 }
               } catch (e) {}

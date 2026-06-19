@@ -714,7 +714,7 @@ async function handleAnigameMentionReply(message, referencedMessage) {
 
     if (priceRow?.market_average && Number(priceRow.market_average) > 0) {
       const sellPrice = Math.max(1, Math.floor(Number(priceRow.market_average) - 1));
-      results.push(`* \`mk sell ${cardId} ${sellPrice}\``);
+      results.push(`* \`.mk sell ${cardId} ${sellPrice}\``);
     }
   }
 

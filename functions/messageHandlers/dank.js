@@ -1,5 +1,6 @@
 const {
   ContainerBuilder,
+  EmbedBuilder,
   SectionBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -66,6 +67,82 @@ function collectComponents(input, output = []) {
   if (input.accessory) collectComponents(input.accessory, output);
 
   return output;
+}
+
+function formatDailyMerchantTrade(trade, index) {
+  const continuedEmoji =
+    global.db.getFeatherEmojiMarkdown("chevrons-right") ||
+    global.db.getFeatherEmojiMarkdown("chevrons_right") ||
+    "»";
+  const endEmoji =
+    global.db.getFeatherEmojiMarkdown("chevron-right") ||
+    global.db.getFeatherEmojiMarkdown("chevron_right") ||
+    "›";
+  const numberEmoji = ["1️⃣", "2️⃣", "3️⃣"][index] || `${index + 1}.`;
+  const tradeText = String(trade?.text || "").trim();
+  const [offer, cost] = tradeText.split(/\s+for your\s+/, 2);
+
+  return [
+    `${numberEmoji} | Trade ${index + 1}: [Max. ${trade.max}]`,
+    ` ${continuedEmoji}**${offer}**`,
+    ` ${endEmoji}for your ${cost || ""}`.trimEnd(),
+  ].join("\n");
+}
+
+function getTodaysBoost(day) {
+  const continuedEmoji =
+    global.db.getFeatherEmojiMarkdown("chevrons-right") ||
+    global.db.getFeatherEmojiMarkdown("chevrons_right") ||
+    "»";
+  const endEmoji =
+    global.db.getFeatherEmojiMarkdown("chevron-right") ||
+    global.db.getFeatherEmojiMarkdown("chevron_right") ||
+    "›";
+  const itemEmoji = (name) => global.db.getDankItemEmojiMarkdown(name) || "";
+  const fishEntityEmoji = (type, name) => {
+    const rows = global.db.safeQuery(
+      `
+      SELECT application_emoji
+      FROM dank_fish_entities
+      WHERE entity_type = ? AND LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+      [type, name],
+      [],
+    );
+    return rows?.[0]?.application_emoji || "";
+  };
+
+  switch (day) {
+    case 1:
+      return [
+        `${continuedEmoji}${itemEmoji("Exclusive Gems Box")} Additional free reroll`,
+        `${endEmoji}${getMultiplierEmojiMarkdown("luck")} +15% Luck`,
+      ].join("\n-# ");
+    case 2:
+      return [
+        `${continuedEmoji}${fishEntityEmoji("bait", "lucky-bait")} +2% Fishing luck`,
+        `${endEmoji}${itemEmoji("Tool Box")} No fishing fails`,
+      ].join("\n-# ");
+    case 3:
+      return `${endEmoji}**${getMultiplierEmojiMarkdown("xp")} Double XP**`;
+    case 4:
+      return `${endEmoji}${itemEmoji("Winning Lottery Ticket")} No market Tax on 1d offers`;
+    case 5:
+      return [
+        `${continuedEmoji}${global.db.getFeatherEmojiMarkdown("skip-forward") || ""} Halved Work CD`,
+        `${endEmoji}${getMultiplierEmojiMarkdown("coins")} Double Work Coins / ${itemEmoji("Ban Hammer")} Item drop **rate**`,
+      ].join("\n-# ");
+    case 6:
+      return [
+        `${continuedEmoji}${getMultiplierEmojiMarkdown("coins")} Tripple Adventure coin rewards`,
+        `${endEmoji}${itemEmoji("Adventure Compass")} Halved Adventure CD / ${itemEmoji("Adventure Ticket")} Entry cost (Rounded **DOWN**)`,
+      ].join("\n-# ");
+    case 0:
+      return `${endEmoji}**${getMultiplierEmojiMarkdown("xp")} Double XP**`;
+    default:
+      return "Something went wrong fetching Boosts";
+  }
 }
 
 function getComponentText(message) {
@@ -291,7 +368,7 @@ async function handleDankMessage(message, oldMessage, settings) {
           newText = newText.replace(/\s{2,}/g, " ").trim();
           newText = newText.replace(/\*\*/g, "");
 
-          trades.push(`[Max. ${currentTradeMax}] ${newText}`);
+          trades.push({ max: currentTradeMax, text: newText });
         }
 
         currentTradeText = null;
@@ -309,14 +386,12 @@ async function handleDankMessage(message, oldMessage, settings) {
         );
 
         if (usersToDMRows && usersToDMRows.length > 0) {
-          const container = new ContainerBuilder()
-            .addTextDisplayComponents(
-              new TextDisplayBuilder().setContent("## Daily Trader Reminder")
-            )
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(
-              new TextDisplayBuilder().setContent(trades.join("\n"))
-            );
+          const utcDay = new Date().getUTCDay();
+          const tradeDescription = trades.map(formatDailyMerchantTrade).join("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+          const dailyBoost = `**Daily Boost**\n-# ${getTodaysBoost(utcDay)}`;
+          const embed = new EmbedBuilder()
+            .setTitle("Merchant Trades")
+            .setDescription(`${tradeDescription}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${dailyBoost}`);
 
           (async () => {
             for (const row of usersToDMRows) {
@@ -324,8 +399,8 @@ async function handleDankMessage(message, oldMessage, settings) {
                 const userObj = await message.client.users.fetch(row.user_id).catch(() => null);
                 if (userObj) {
                   await userObj.send({
-                    components: [container],
-                    flags: MessageFlags.IsComponentsV2,
+                    content: "-# Dank Daily Merchant Reset",
+                    embeds: [embed],
                   }).catch(() => {});
                 }
               } catch (e) {
