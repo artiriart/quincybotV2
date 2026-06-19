@@ -400,10 +400,21 @@ async function runDankFishCatchInfo(interaction) {
       if (start === 0 && end === 24) return true;
       
       const utcHour = new Date(timeMs).getUTCHours();
+      
+      let activeStart = start;
+      let activeEnd = end;
       if (fishTime.reversed) {
-        return utcHour >= start || utcHour < end;
+        activeStart = end;
+        activeEnd = start;
       }
-      return utcHour >= start && utcHour < end;
+
+      if (activeStart === 24) activeStart = 0;
+
+      if (activeStart > activeEnd) {
+        return utcHour >= activeStart || utcHour < activeEnd;
+      } else {
+        return utcHour >= activeStart && utcHour < activeEnd;
+      }
     });
 
     const toolResults = [];
