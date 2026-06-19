@@ -1,6 +1,7 @@
 const {
   ContainerBuilder,
   MessageFlags,
+  SectionBuilder,
   SeparatorBuilder,
   TextDisplayBuilder,
 } = require("discord.js");
