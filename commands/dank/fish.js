@@ -391,11 +391,26 @@ async function runDankFishCatchInfo(interaction) {
     const fishIsMythical = isMythicalFish(fish, fishMeta);
     const tools = getCandidateTools(fishMeta, getData);
     const hourTimes = buildHourTimes();
+    
+    const fishTime = fishMeta.time || {};
+    const validHourTimes = hourTimes.filter((timeMs) => {
+      if (fishTime.start == null || fishTime.end == null) return true;
+      const start = Number(fishTime.start || 0);
+      const end = Number(fishTime.end || 0);
+      if (start === 0 && end === 24) return true;
+      
+      const utcHour = new Date(timeMs).getUTCHours();
+      if (fishTime.reversed) {
+        return utcHour >= start || utcHour < end;
+      }
+      return utcHour >= start && utcHour < end;
+    });
+
     const toolResults = [];
 
     for (const tool of tools) {
       const hours = await Promise.all(
-        hourTimes.map(async (time) => ({
+        validHourTimes.map(async (time) => ({
           time,
           chance: await fetchCatchChance({
             settings,

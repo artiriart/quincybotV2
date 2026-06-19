@@ -141,7 +141,9 @@ async function sendDueReminder(row) {
   } catch (error) {
     const reason = String(error?.message || error || "").toLowerCase();
     if (reason.includes("cannot send messages to this user")) {
-      console.warn(`[reminders] DM failed for ${userId}, keeping reminder queued`);
+      console.warn(`[reminders] DM failed for ${userId}, deleting reminder`);
+      deleteReminder(type, userId);
+      return true;
     } else if (isTerminalDeliveryError(error)) {
       console.warn(
         `[reminders] delivery permanently failed for ${type}/${userId}; deleting reminder (${error?.code || error?.rawError?.code || error?.message || "terminal error"})`,
