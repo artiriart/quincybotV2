@@ -28,7 +28,7 @@ const ROUTE_PREFIX = "anigamerem";
 const ITEMS_PER_PAGE = 5;
 const CARD_NAME_INPUT_ID = "card_name";
 const RARITY_INPUT_ID = "rarity";
-const DEFAULT_RAIDLIST_COST = 200_000;
+const DEFAULT_RAIDLIST_COST = 40_000;
 const ANIGAME_RAIDLIST_RARITIES = "r,sr,ur";
 const ANIGAME_RAIDLIST_PREFIX = ".rd lobbies -aid ";
 const ANIGAME_RAIDLIST_SUFFIX = ` -d i -r ${ANIGAME_RAIDLIST_RARITIES}`;
@@ -698,7 +698,7 @@ module.exports = {
         .addStringOption((option) =>
           option
             .setName("cost")
-            .setDescription("Minimum card price. Default: 200k")
+            .setDescription("Minimum card price. Default: 40k")
             .setRequired(false),
         )
         .addStringOption((option) =>

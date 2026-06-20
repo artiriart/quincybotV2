@@ -235,7 +235,7 @@ function buildToolBlockContent(result, currentHour, trend, atSign) {
  * `includeHeader` controls whether the fish/location header is prepended.
  */
 function buildChunkContainer(header, toolBlocks, includeHeader) {
-  const container = new ContainerBuilder();
+  const container = new ContainerBuilder().setAccentColor(0x0e4fa4a5);
 
   if (includeHeader) {
     container
@@ -343,12 +343,12 @@ function buildFishInfoPayload(fish) {
     : `Start: **<t:${startTs}:t>** | End: **<t:${endTs}:t>**`;
   const variantNames = variants.map((variant) => variant.name || toTitleFromId(variant.id));
   const details = [
+    `${arrow} Boss: **${isBoss ? "Yes" : "No"}**`,
+    `${arrow} Mythical: **${isMythical ? "Yes" : "No"}**`,
     `${arrow} Rarity: **${fish.rarity || meta.rarity || "Unknown"}**`,
     `${arrow} Availability: ${availability}`,
     `${arrow} Variants (${variantNames.length}): ${variantNames.length ? variantNames.join(", ") : "None"}`,
     `${arrow} Locations (${locationNames.length}): ${locationNames.length ? locationNames.join(", ") : "Unknown"}`,
-    `${arrow} Boss: **${isBoss ? "Yes" : "No"}**`,
-    `${arrow} Mythical: **${isMythical ? "Yes" : "No"}**`,
   ];
 
   if (price) details.push(`${arrow} Price: **${formatCoins(price)}**`);

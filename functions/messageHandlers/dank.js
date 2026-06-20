@@ -440,21 +440,22 @@ async function handleDankMessage(message, oldMessage, settings) {
 
       if (currentCoins >= requiredCoins) {
         const excessCoins = currentCoins - requiredCoins;
-        lines.push(`## Excess Coins: \`${excessCoins.toLocaleString()}\``);
+        lines.push(`${global.db.getFeatherEmojiMarkdown("trending-up")}extra coins: \`${excessCoins.toLocaleString()}\``);
       } else {
         const coinsNeeded = requiredCoins - currentCoins;
-        lines.push(`### Needed Coins: \`${coinsNeeded.toLocaleString()}\``);
+        lines.push(`${global.db.getFeatherEmojiMarkdown("trending-down")}needed coins: \`${coinsNeeded.toLocaleString()}\``);
       }
 
       if (currentLevel >= requiredLevel) {
         const excessLevels = currentLevel - requiredLevel;
-        lines.push(`## Excess Levels: \`${excessLevels.toLocaleString()}\``);
+        lines.push(`-# ${global.db.getFeatherEmojiMarkdown("check-circle")}extra levels: \`${excessLevels.toLocaleString()}\``);
       } else {
         const levelsNeeded = requiredLevel - currentLevel;
-        lines.push(`### Needed Levels: \`${levelsNeeded.toLocaleString()}\``);
+        lines.push(`${global.db.getFeatherEmojiMarkdown("x")}needed levels: \`${levelsNeeded.toLocaleString()}\``);
       }
 
       const container = new ContainerBuilder()
+        .setAccentColor(0xd2a11ae5)
         .addTextDisplayComponents(
           new TextDisplayBuilder().setContent("## Prestige Calculator")
         )

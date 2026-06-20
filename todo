@@ -32,7 +32,8 @@
 
 - dank: 
     - implement: Scratch/Gboosts/fish events
-    - implement: /fish info; /fish npc-rep Commands
+    - implement: /fish npc-rep command for user, find out what the rep stages are e.g. adore = 600, display like this: [feather chevron-right] NpcEmoji **NpcName** - `NpcRep` (CurrentStageName) - NextStageName in RepForNextStageAmt
+        - Index all NPC Emojis to bot too for this
 
 - utility:
     - implement: upload Quincy db periodically to discord via gzip'ing tables as (json/yaml) as backup
