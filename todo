@@ -9,7 +9,6 @@
     - implement: index 7w7 weapon abilities via reroll Screen indexing + Emoji ID -> better lookup
 
 - anigame:
-    - test: Find out which Cards/Series are Event only -> ignore for raidlist
     - test: fshop, cl shop etc wishlist setter via webhooks forwards to DM + 1 day forecast
     - fix: crit/evade notif
 
@@ -32,8 +31,6 @@
 
 - dank: 
     - implement: Scratch/Gboosts/fish events
-    - implement: /fish npc-rep command for user, find out what the rep stages are e.g. adore = 600, display like this: [feather chevron-right] NpcEmoji **NpcName** - `NpcRep` (CurrentStageName) - NextStageName in RepForNextStageAmt
-        - Index all NPC Emojis to bot too for this
 
 - utility:
     - implement: upload Quincy db periodically to discord via gzip'ing tables as (json/yaml) as backup
