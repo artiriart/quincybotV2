@@ -731,8 +731,60 @@ async function handleAnigameMentionReply(message, referencedMessage) {
   }
 }
 
+/**
+ * Forward a breach webhook message to every user who has opted in to
+ * breach DM reminders via /settings (toggle key: breach_dm_reminder).
+ *
+ * Only acts on messages from the webhook ID 1520148782799651109
+ * ("AniGame Official Server #breach") in the clan-shop channel.
+ * The raw ComponentsV2 container is forwarded verbatim to each opted-in user's DM.
+ *
+ * @param {import('discord.js').Message} message
+ * @param {ReturnType<import('../handleMessageHelpers').createSettingsReader>} settings
+ */
+async function handleBreachWebhook(message, settings) {
+  // Only react to the known breach webhook sender.
+  if (
+    message.author?.id !== "1520148782799651109" &&
+    message.webhookId !== "1520148782799651109"
+  ) return;
+
+  // Must have at least one component to forward.
+  const rawComponents = message.components;
+  if (!rawComponents || rawComponents.length === 0) return;
+
+  // Fetch all users who have enabled the breach DM reminder toggle.
+  const rows = global.db.safeQuery(
+    `SELECT user_id FROM user_settings_toggles WHERE type = 'breach_dm_reminder' AND toggle = 1`,
+    [],
+    [],
+  );
+
+  if (!rows.length) return;
+
+  const seen = new Set();
+  for (const row of rows) {
+    const userId = String(row?.user_id || "").trim();
+    if (!userId || seen.has(userId)) continue;
+    seen.add(userId);
+
+    const user =
+      global.bot.users.cache.get(userId) ||
+      (await global.bot.users.fetch(userId).catch(() => null));
+    if (!user) continue;
+
+    await user
+      .send({
+        components: rawComponents,
+        flags: MessageFlags.IsComponentsV2,
+      })
+      .catch(() => {});
+  }
+}
+
 module.exports = {
   handleAnigameMessage,
   handleAnigameWebhook,
   handleAnigameMentionReply,
+  handleBreachWebhook,
 };

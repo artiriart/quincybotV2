@@ -62,6 +62,7 @@ const KARUTA_GUILD_DROP_CALC_STATE_TYPE = "karuta_drop_calculation_enabled";
 
 const ANIGAME_TOGGLES = [
   { key: "anigame_card_stat_tracking", label: "Card Stat tracking", defaultOn: true },
+  { key: "breach_dm_reminder", label: "Breach DM Reminder", defaultOn: false },
 ];
 
 const MODAL_SETTINGS = {
