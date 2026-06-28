@@ -235,7 +235,7 @@ function buildToolBlockContent(result, currentHour, trend, atSign) {
  * `includeHeader` controls whether the fish/location header is prepended.
  */
 function buildChunkContainer(header, toolBlocks, includeHeader) {
-  const container = new ContainerBuilder().setAccentColor(0x0e4fa4a5);
+  const container = new ContainerBuilder().setAccentColor(0x4fa4a5);
 
   if (includeHeader) {
     container

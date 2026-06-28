@@ -455,7 +455,7 @@ async function handleDankMessage(message, oldMessage, settings) {
       }
 
       const container = new ContainerBuilder()
-        .setAccentColor(0xd2a11ae5)
+        .setAccentColor(0xa11ae5)
         .addTextDisplayComponents(
           new TextDisplayBuilder().setContent("## Prestige Calculator")
         )
