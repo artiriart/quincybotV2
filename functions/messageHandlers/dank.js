@@ -414,6 +414,67 @@ async function handleDankMessage(message, oldMessage, settings) {
     }
   }
 
+  const componentTexts = collectComponentText(message?.components);
+  const activeEventsText = componentTexts.find((text) =>
+    String(text || "").includes("**Active Events:**")
+  );
+
+  if (activeEventsText) {
+    const lines = activeEventsText.split("\n");
+    let currentEvent = null;
+    const events = [];
+    for (const line of lines) {
+      if (line.includes("**Active Events:**")) continue;
+      const eventMatch = line.match(/<:[a-zA-Z0-9_]+:\d+>\s+\[([^\]]+)\]/);
+      if (eventMatch) {
+         currentEvent = { name: eventMatch[1], ends: "" };
+         events.push(currentEvent);
+      } else if (line.includes("Ends")) {
+         const endsMatch = line.match(/(<t:\d+:[rR]>)/);
+         if (endsMatch && currentEvent) {
+             currentEvent.ends = endsMatch[1];
+         }
+      }
+    }
+    
+    if (events.length > 0) {
+      const eventString = events.map(e => `${e.name}:${e.ends}`).join("|");
+      const lastSentEvents = global.db.getState("dank_fish_events_last");
+      
+      if (eventString !== lastSentEvents) {
+         global.db.upsertState("dank_fish_events_last", eventString);
+         
+         const usersToDMRows = global.db.safeQuery(
+            "SELECT user_id FROM user_settings_toggles WHERE type = ? AND toggle = 1",
+            ["dank_fish_events_dm"]
+         );
+         
+         if (usersToDMRows && usersToDMRows.length > 0) {
+            const arrowEmoji = global.db.getFeatherEmojiMarkdown("arrow-right-circle") || "»";
+            const eventLines = events.map(e => `* ${arrowEmoji} **${e.name}** [Ends ${e.ends}]`);
+            const embed = new EmbedBuilder()
+               .setTitle("Currently Active events:")
+               .setDescription(eventLines.join("\n"));
+               
+            (async () => {
+               for (const row of usersToDMRows) {
+                 try {
+                   const userObj = await message.client.users.fetch(row.user_id).catch(() => null);
+                   if (userObj) {
+                     await userObj.send({
+                       content: "-# Fishing Boost Event",
+                       embeds: [embed],
+                     }).catch(() => {});
+                   }
+                 } catch (e) {}
+                 await new Promise((resolve) => setTimeout(resolve, 500));
+               }
+            })();
+         }
+      }
+    }
+  }
+
   if (
     message?.embeds?.[0]?.title?.startsWith("Prestige ") &&
     message.embeds[0].title.endsWith(" Requirements")
