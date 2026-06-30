@@ -785,7 +785,6 @@ async function handleDankMessage(message, oldMessage, settings) {
     return;
   }
 
-  const componentTexts = collectComponentText(message?.components);
   const componentText = componentTexts.find((text) =>
     String(text || "").includes("Coin Nuke**"),
   );

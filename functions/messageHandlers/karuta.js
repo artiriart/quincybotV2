@@ -342,7 +342,7 @@ async function handleKarutaMessage(message, settings) {
   if (description.includes("you were recently rejected.")) {
     reminderHours = 24;
   } else if (description.includes("date was successful!")) {
-    reminderHours = 8;
+    reminderHours = 10;
   }
 
   const user = extractUserFromMention(description);
